@@ -79,7 +79,7 @@ jobs:
       - uses: actions/checkout@v2
         with:
           fetch-depth: 1      
-      - uses: actions/setup-go@v1.7.0
+      - uses: actions/setup-go@v2
         with:
           go-version: ${{ matrix.go }}
       - name: Continuous Integration
