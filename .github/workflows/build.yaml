@@ -83,4 +83,4 @@ jobs:
         with:
           go-version: ${{ matrix.go }}
       - name: Continuous Integration
-        run: powershell -ExecutionPolicy Bypass make.ps1 -Script ci # -Version ${{ github.ref }}
+        run: powershell -ExecutionPolicy Bypass .\make.ps1 -Script ci # -Version ${{ github.ref }}
