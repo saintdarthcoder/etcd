@@ -168,18 +168,24 @@ func TestStopRaftWhenWaitingForApplyDone(t *testing.T) {
 	srv := &EtcdServer{lgMu: new(sync.RWMutex), lg: zaptest.NewLogger(t), r: *r}
 	srv.r.start(nil)
 	n.readyc <- raft.Ready{}
+
+	stop := func() {
+		srv.r.stopped <- struct{}{}
+		select {
+		case <-srv.r.done:
+		case <-time.After(time.Second):
+			t.Fatalf("failed to stop raft loop")
+		}
+	}
+
 	select {
 	case <-srv.r.applyc:
 	case <-time.After(time.Second):
+		stop()
 		t.Fatalf("failed to receive toApply struct")
 	}
 
-	srv.r.stopped <- struct{}{}
-	select {
-	case <-srv.r.done:
-	case <-time.After(time.Second):
-		t.Fatalf("failed to stop raft loop")
-	}
+	stop()
 }
 
 // TestConfigChangeBlocksApply ensures toApply blocks if committed entries contain config-change.
@@ -284,4 +290,30 @@ func TestExpvarWithNoRaftStatus(t *testing.T) {
 	expvar.Do(func(kv expvar.KeyValue) {
 		_ = kv.Value.String()
 	})
+}
+
+func TestStopRaftNodeMoreThanOnce(t *testing.T) {
+	n := newNopReadyNode()
+	r := newRaftNode(raftNodeConfig{
+		lg:          zaptest.NewLogger(t),
+		Node:        n,
+		storage:     mockstorage.NewStorageRecorder(""),
+		raftStorage: raft.NewMemoryStorage(),
+		transport:   newNopTransporter(),
+	})
+	r.start(&raftReadyHandler{})
+
+	for i := 0; i < 2; i++ {
+		stopped := make(chan struct{})
+		go func() {
+			r.stop()
+			close(stopped)
+		}()
+
+		select {
+		case <-stopped:
+		case <-time.After(time.Second):
+			t.Errorf("*raftNode.stop() is blocked !")
+		}
+	}
 }
