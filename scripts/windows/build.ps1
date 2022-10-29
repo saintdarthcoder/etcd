@@ -19,7 +19,7 @@ function Build {
         [string]
         $Output        
     )
-    $env:GO_LDFLAGS = '-s -w -gcflags=all=-dwarf=false -extldflags "-static"'
+    $env:GO_LDFLAGS = "-s -w " #-gcflags=all=-dwarf=false"   #-extldflags" \"-static\""
 
     if ($env:DEBUG) {
         $env:GO_LDFLAGS = '-v -gcflags=all=-N -l'
@@ -27,10 +27,8 @@ function Build {
         # go install github.com/go-delve/delve/cmd/dlv@latest
     }
 
-    $GO_LDFLAGS = ("'{0} -X {1}/{2}/version.GitSHA={3}'" -f $env:GO_LDFLAGS, $env:ORG_PATH, $env:GIT_REPO, $Commit)
-    if ($env:DEBUG){
-        Write-LogInfo "[DEBUG] Running command: go build -o $Output -ldflags $GO_LDFLAGS"
-    }
+    $GO_LDFLAGS = ("`"{0} -X {1}/{2}/version.GitSHA={3}`"" -f $env:GO_LDFLAGS, $env:ORG_PATH, $env:GIT_REPO, $Commit)
+    Write-LogInfo "Running command: go build -o $Output -ldflags $GO_LDFLAGS"
 
     Push-Location $BuildPath
     go build -o $Output -ldflags $GO_LDFLAGS .
