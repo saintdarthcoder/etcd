@@ -19,10 +19,10 @@ function Build {
         [string]
         $Output        
     )
-    $env:GO_LDFLAGS = "-s -w " #-gcflags=all=-dwarf=false"   #-extldflags" \"-static\""
+    $env:GO_LDFLAGS = "-s -w " 
 
     if ($env:DEBUG) {
-        $env:GO_LDFLAGS = '-v -gcflags=all=-N -l'
+        $env:GO_LDFLAGS = '-v '
         Write-LogInfo ('Debug flag passed, changing ldflags to {0}' -f $env:GO_LDFLAGS )
         # go install github.com/go-delve/delve/cmd/dlv@latest
     }
