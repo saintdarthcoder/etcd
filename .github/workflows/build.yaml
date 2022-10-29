@@ -65,7 +65,7 @@ jobs:
       fail-fast: false
       matrix:
         os: ["windows-latest"]
-        go: ["1.17.8"]
+        go: ["1.19.2"]
     env:
       GIT_ORG: ${{ github.repository_owner }}
       GIT_REPO: ${{ github.events.repository.name }}

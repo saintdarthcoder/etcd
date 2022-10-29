@@ -121,9 +121,9 @@ function Set-Path() {
     # ideally, gopath would be C:\go to match Linux a bit closer
     # but C:\go is the recommended install path for Go itself on Windows, so we use C:\gopath
     $env:PATH += ";C:\git\cmd;C:\git\mingw64\bin;C:\git\usr\bin;C:\gopath\bin;C:\go\bin"
-    $environment = [System.Environment]::GetEnvironmentVariable("Path", "Machine")
-    $environment = $environment.Insert($environment.Length, ";C:\git\cmd;C:\git\mingw64\bin;C:\git\usr\bin;C:\gopath\bin;C:\go\bin")
-    [System.Environment]::SetEnvironmentVariable("Path", $environment, "Machine")
+    #$environment = [System.Environment]::GetEnvironmentVariable("Path", "Machine")
+    #$environment = $environment.Insert($environment.Length, ";C:\git\cmd;C:\git\mingw64\bin;C:\git\usr\bin;C:\gopath\bin;C:\go\bin")
+    #[System.Environment]::SetEnvironmentVariable("Path", $environment, "Machine")
 }
     
 function Test-Architecture() {
