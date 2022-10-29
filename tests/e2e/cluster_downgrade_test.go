@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/coreos/go-semver/semver"
+	"github.com/stretchr/testify/assert"
 	"go.etcd.io/etcd/api/v3/version"
 	"go.etcd.io/etcd/client/pkg/v3/fileutil"
 	clientv3 "go.etcd.io/etcd/client/v3"
@@ -37,8 +38,8 @@ func TestDowngradeUpgradeClusterOf3(t *testing.T) {
 }
 
 func testDowngradeUpgrade(t *testing.T, clusterSize int) {
-	currentEtcdBinary := e2e.BinDir + "/etcd"
-	lastReleaseBinary := e2e.BinDir + "/etcd-last-release"
+	currentEtcdBinary := e2e.BinPath.Etcd
+	lastReleaseBinary := e2e.BinPath.EtcdLastRelease
 	if !fileutil.Exist(lastReleaseBinary) {
 		t.Skipf("%q does not exist", lastReleaseBinary)
 	}
@@ -61,7 +62,7 @@ func testDowngradeUpgrade(t *testing.T, clusterSize int) {
 
 	t.Log("Downgrade enabled, validating if cluster is ready for downgrade")
 	for i := 0; i < len(epc.Procs); i++ {
-		expectLog(t, epc.Procs[i], "The server is ready to downgrade")
+		e2e.AssertProcessLogs(t, epc.Procs[i], "The server is ready to downgrade")
 		validateVersion(t, epc.Cfg, epc.Procs[i], version.Versions{Cluster: lastVersionStr, Server: currentVersionStr})
 	}
 	t.Log("Cluster is ready for downgrade")
@@ -73,7 +74,7 @@ func testDowngradeUpgrade(t *testing.T, clusterSize int) {
 		startEtcd(t, epc.Procs[i], lastReleaseBinary)
 	}
 	t.Log("All members downgraded, validating downgrade")
-	expectLog(t, leader(t, epc), "the cluster has been downgraded")
+	e2e.AssertProcessLogs(t, leader(t, epc), "the cluster has been downgraded")
 	for i := 0; i < len(epc.Procs); i++ {
 		validateVersion(t, epc.Cfg, epc.Procs[i], version.Versions{Cluster: lastVersionStr, Server: lastVersionStr})
 	}
@@ -96,7 +97,7 @@ func testDowngradeUpgrade(t *testing.T, clusterSize int) {
 }
 
 func newCluster(t *testing.T, execPath string, clusterSize int) *e2e.EtcdProcessCluster {
-	epc, err := e2e.NewEtcdProcessCluster(t, &e2e.EtcdProcessClusterConfig{
+	epc, err := e2e.NewEtcdProcessCluster(context.TODO(), t, &e2e.EtcdProcessClusterConfig{
 		ExecPath:     execPath,
 		ClusterSize:  clusterSize,
 		InitialToken: "new",
@@ -115,16 +116,17 @@ func newCluster(t *testing.T, execPath string, clusterSize int) *e2e.EtcdProcess
 
 func startEtcd(t *testing.T, ep e2e.EtcdProcess, execPath string) {
 	ep.Config().ExecPath = execPath
-	err := ep.Restart()
+	err := ep.Restart(context.TODO())
 	if err != nil {
 		t.Fatalf("could not start etcd process cluster (%v)", err)
 	}
 }
 
 func downgradeEnable(t *testing.T, epc *e2e.EtcdProcessCluster, ver semver.Version) {
-	c := e2e.NewEtcdctl(epc.Cfg, epc.EndpointsV3())
+	c, err := e2e.NewEtcdctl(epc.Cfg, epc.EndpointsV3())
+	assert.NoError(t, err)
 	testutils.ExecuteWithTimeout(t, 20*time.Second, func() {
-		err := c.DowngradeEnable(ver.String())
+		err := c.DowngradeEnable(context.TODO(), ver.String())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -158,17 +160,6 @@ func validateVersion(t *testing.T, cfg *e2e.EtcdProcessClusterConfig, member e2e
 			}
 			break
 		}
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-}
-
-func expectLog(t *testing.T, ep e2e.EtcdProcess, expectLog string) {
-	t.Helper()
-	var err error
-	testutils.ExecuteWithTimeout(t, 30*time.Second, func() {
-		_, err = ep.Logs().Expect(expectLog)
 	})
 	if err != nil {
 		t.Fatal(err)

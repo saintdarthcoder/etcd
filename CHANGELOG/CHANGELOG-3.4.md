@@ -4,6 +4,40 @@ Previous change logs can be found at [CHANGELOG-3.3](https://github.com/etcd-io/
 
 <hr>
 
+## v3.4.22 (TBD)
+
+### etcd server
+- Fix [memberID equals zero in corruption alarm](https://github.com/etcd-io/etcd/pull/14530)
+- Fix [auth invalid token and old revision errors in watch](https://github.com/etcd-io/etcd/pull/14548)
+- Fix [avoid closing a watch with ID 0 incorrectly](https://github.com/etcd-io/etcd/pull/14562)
+- Fix [auth: fix data consistency issue caused by recovery from snapshot](https://github.com/etcd-io/etcd/pull/14649)
+
+### Package `netutil`
+- Fix [netutil: add url comparison without resolver to URLStringsEqual](https://github.com/etcd-io/etcd/pull/14577)
+
+### Package `clientv3`
+- Fix [Add backoff before retry when watch stream returns unavailable](https://github.com/etcd-io/etcd/pull/14581).
+
+<hr>
+
+## v3.4.22 (TBD)
+
+### etcd grpc-proxy
+- Add [`etcd grpc-proxy start --listen-cipher-suites`](https://github.com/etcd-io/etcd/pull/14601) flag to support adding configurable cipher list.
+
+## v3.4.21 (2022-09-15)
+
+### etcd server
+- Fix [Durability API guarantee broken in single node cluster](https://github.com/etcd-io/etcd/pull/14423)
+- Fix [Panic due to nil log object](https://github.com/etcd-io/etcd/pull/14420)
+- Fix [authentication data not loaded on member startup](https://github.com/etcd-io/etcd/pull/14410)
+
+### etcdctl v3
+
+- Fix [etcdctl move-leader may fail for multiple endpoints](https://github.com/etcd-io/etcd/pull/14441)
+
+<hr>
+
 ## v3.4.20 (2022-08-06)
 
 ### Package `clientv3`
@@ -21,6 +55,8 @@ Previous change logs can be found at [CHANGELOG-3.3](https://github.com/etcd-io/
 - Fix [Etcdserver is still in progress of processing LeaseGrantRequest when it receives a LeaseKeepAliveRequest on the same leaseID](https://github.com/etcd-io/etcd/pull/14177)
 - Fix [Grant lease with negative ID can possibly cause db out of sync](https://github.com/etcd-io/etcd/pull/14239)
 - Fix [non mutating requests pass through quotaKVServer when NOSPACE](https://github.com/etcd-io/etcd/pull/14254)
+
+<hr>
 
 ## v3.4.19 (2022-07-12)
 

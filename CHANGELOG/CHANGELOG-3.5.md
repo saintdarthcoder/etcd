@@ -4,19 +4,54 @@ Previous change logs can be found at [CHANGELOG-3.4](https://github.com/etcd-io/
 
 <hr>
 
-## v3.5.5 (TBD)
+## v3.5.6 (TBD)
+
+### etcd server
+- Fix [auth invalid token and old revision errors in watch](https://github.com/etcd-io/etcd/pull/14547)
+- Fix [avoid closing a watch with ID 0 incorrectly](https://github.com/etcd-io/etcd/pull/14563)
+- Fix [auth: fix data consistency issue caused by recovery from snapshot](https://github.com/etcd-io/etcd/pull/14648)
+
+### Package `netutil`
+- Fix [netutil: add url comparison without resolver to URLStringsEqual](https://github.com/etcd-io/etcd/pull/14573)
+
+### Package `clientv3`
+- Fix [Add backoff before retry when watch stream returns unavailable](https://github.com/etcd-io/etcd/pull/14582).
+
+<hr>
+
+## v3.5.6 (TBD)
+
+### etcd grpc-proxy
+- Add [`etcd grpc-proxy start --listen-cipher-suites`](https://github.com/etcd-io/etcd/pull/14500) flag to support adding configurable cipher list.
+
+## v3.5.5 (2022-09-15)
+
+### Deprecations
+- Deprecated [SetKeepAlive and SetKeepAlivePeriod in limitListenerConn](https://github.com/etcd-io/etcd/pull/14366).
 
 ### Package `clientv3`
 - Fix [do not overwrite authTokenBundle on dial](https://github.com/etcd-io/etcd/pull/14132).
+- Fix [IsOptsWithPrefix returns false even if WithPrefix() is included](https://github.com/etcd-io/etcd/pull/14187).
 
 ### etcd server
+- [Build official darwin/arm64 artifacts](https://github.com/etcd-io/etcd/pull/14436).
 - Add [`etcd --max-concurrent-streams`](https://github.com/etcd-io/etcd/pull/14219) flag to configure the max concurrent streams each client can open at a time, and defaults to math.MaxUint32.
+- Add [`etcd --experimental-compact-hash-check-enabled --experimental-compact-hash-check-time`](https://github.com/etcd-io/etcd/issues/14039) flags to support enabling reliable corruption detection on compacted revisions.
+- Fix [unexpected error during txn](https://github.com/etcd-io/etcd/issues/14110).
 - Fix [lease leak issue due to tokenProvider isn't enabled when restoring auth store from a snapshot](https://github.com/etcd-io/etcd/pull/13205).
 - Fix [the race condition between goroutine and channel on the same leases to be revoked](https://github.com/etcd-io/etcd/pull/14087).
 - Fix [lessor may continue to schedule checkpoint after stepping down leader role](https://github.com/etcd-io/etcd/pull/14087).
 - Fix [Restrict the max size of each WAL entry to the remaining size of the WAL file](https://github.com/etcd-io/etcd/pull/14127).
 - Fix [Protect rangePermCache with a RW lock correctly](https://github.com/etcd-io/etcd/pull/14227)
 - Fix [memberID equals zero in corruption alarm](https://github.com/etcd-io/etcd/pull/14272)
+- Fix [Durability API guarantee broken in single node cluster](https://github.com/etcd-io/etcd/pull/14424)
+- Fix [etcd fails to start after performing alarm list operation and then power off/on](https://github.com/etcd-io/etcd/pull/14429)
+- Fix [authentication data not loaded on member startup](https://github.com/etcd-io/etcd/pull/14409)
+
+### etcdctl v3
+
+- Fix [etcdctl move-leader may fail for multiple endpoints](https://github.com/etcd-io/etcd/pull/14434)
+
 
 ### Other
 - [Bump golang.org/x/crypto to latest version](https://github.com/etcd-io/etcd/pull/13996) to address [CVE-2022-27191](https://github.com/advisories/GHSA-8c26-wmh5-6g9v).

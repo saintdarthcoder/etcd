@@ -18,6 +18,7 @@ package expect
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -33,6 +34,8 @@ import (
 const DEBUG_LINES_TAIL = 40
 
 type ExpectProcess struct {
+	cfg expectConfig
+
 	cmd  *exec.Cmd
 	fpty *os.File
 	wg   sync.WaitGroup
@@ -40,28 +43,27 @@ type ExpectProcess struct {
 	mu    sync.Mutex // protects lines and err
 	lines []string
 	count int // increment whenever new line gets added
+	cur   int // current read position
 	err   error
-
-	// StopSignal is the signal Stop sends to the process; defaults to SIGTERM.
-	StopSignal os.Signal
 }
 
 // NewExpect creates a new process for expect testing.
 func NewExpect(name string, arg ...string) (ep *ExpectProcess, err error) {
-	// if env[] is nil, use current system env
-	return NewExpectWithEnv(name, arg, nil)
+	// if env[] is nil, use current system env and the default command as name
+	return NewExpectWithEnv(name, arg, nil, name)
 }
 
 // NewExpectWithEnv creates a new process with user defined env variables for expect testing.
-func NewExpectWithEnv(name string, args []string, env []string) (ep *ExpectProcess, err error) {
-	cmd := exec.Command(name, args...)
-	cmd.Env = env
+func NewExpectWithEnv(name string, args []string, env []string, serverProcessConfigName string) (ep *ExpectProcess, err error) {
 	ep = &ExpectProcess{
-		cmd:        cmd,
-		StopSignal: syscall.SIGTERM,
+		cfg: expectConfig{
+			name: serverProcessConfigName,
+			cmd:  name,
+			args: args,
+			env:  env,
+		},
 	}
-	ep.cmd.Stderr = ep.cmd.Stdout
-	ep.cmd.Stdin = nil
+	ep.cmd = commandFromConfig(ep.cfg)
 
 	if ep.fpty, err = pty.Start(ep.cmd); err != nil {
 		return nil, err
@@ -70,6 +72,25 @@ func NewExpectWithEnv(name string, args []string, env []string) (ep *ExpectProce
 	ep.wg.Add(1)
 	go ep.read()
 	return ep, nil
+}
+
+type expectConfig struct {
+	name string
+	cmd  string
+	args []string
+	env  []string
+}
+
+func commandFromConfig(config expectConfig) *exec.Cmd {
+	cmd := exec.Command(config.cmd, config.args...)
+	cmd.Env = config.env
+	cmd.Stderr = cmd.Stdout
+	cmd.Stdin = nil
+	return cmd
+}
+
+func (ep *ExpectProcess) Pid() int {
+	return ep.cmd.Process.Pid
 }
 
 func (ep *ExpectProcess) read() {
@@ -81,7 +102,7 @@ func (ep *ExpectProcess) read() {
 		ep.mu.Lock()
 		if l != "" {
 			if printDebugLines {
-				fmt.Printf("%s-%d: %s", ep.cmd.Path, ep.cmd.Process.Pid, l)
+				fmt.Printf("%s (%s) (%d): %s", ep.cmd.Path, ep.cfg.name, ep.cmd.Process.Pid, l)
 			}
 			ep.lines = append(ep.lines, l)
 			ep.count++
@@ -96,7 +117,7 @@ func (ep *ExpectProcess) read() {
 }
 
 // ExpectFunc returns the first line satisfying the function f.
-func (ep *ExpectProcess) ExpectFunc(f func(string) bool) (string, error) {
+func (ep *ExpectProcess) ExpectFunc(ctx context.Context, f func(string) bool) (string, error) {
 	i := 0
 
 	for {
@@ -114,7 +135,13 @@ func (ep *ExpectProcess) ExpectFunc(f func(string) bool) (string, error) {
 			break
 		}
 		ep.mu.Unlock()
-		time.Sleep(time.Millisecond * 10)
+
+		select {
+		case <-ctx.Done():
+			return "", fmt.Errorf("failed to find match string: %w", ctx.Err())
+		case <-time.After(time.Millisecond * 10):
+			// continue loop
+		}
 	}
 	ep.mu.Lock()
 	lastLinesIndex := len(ep.lines) - DEBUG_LINES_TAIL
@@ -128,9 +155,15 @@ func (ep *ExpectProcess) ExpectFunc(f func(string) bool) (string, error) {
 		ep.err, lastLines)
 }
 
+// ExpectWithContext returns the first line containing the given string.
+func (ep *ExpectProcess) ExpectWithContext(ctx context.Context, s string) (string, error) {
+	return ep.ExpectFunc(ctx, func(txt string) bool { return strings.Contains(txt, s) })
+}
+
 // Expect returns the first line containing the given string.
+// Deprecated: please use ExpectWithContext instead.
 func (ep *ExpectProcess) Expect(s string) (string, error) {
-	return ep.ExpectFunc(func(txt string) bool { return strings.Contains(txt, s) })
+	return ep.ExpectWithContext(context.Background(), s)
 }
 
 // LineCount returns the number of recorded lines since
@@ -149,6 +182,11 @@ func (ep *ExpectProcess) Signal(sig os.Signal) error {
 	return ep.cmd.Process.Signal(sig)
 }
 
+func (ep *ExpectProcess) Wait() error {
+	_, err := ep.cmd.Process.Wait()
+	return err
+}
+
 // Close waits for the expect process to exit.
 // Close currently does not return error if process exited with !=0 status.
 // TODO: Close should expose underlying process failure by default.
@@ -159,7 +197,7 @@ func (ep *ExpectProcess) close(kill bool) error {
 		return ep.err
 	}
 	if kill {
-		ep.Signal(ep.StopSignal)
+		ep.Signal(syscall.SIGTERM)
 	}
 
 	err := ep.cmd.Wait()
@@ -197,4 +235,16 @@ func (ep *ExpectProcess) Lines() []string {
 	ep.mu.Lock()
 	defer ep.mu.Unlock()
 	return ep.lines
+}
+
+// ReadLine returns line by line.
+func (ep *ExpectProcess) ReadLine() string {
+	ep.mu.Lock()
+	defer ep.mu.Unlock()
+	if ep.count > ep.cur {
+		line := ep.lines[ep.cur]
+		ep.cur++
+		return line
+	}
+	return ""
 }

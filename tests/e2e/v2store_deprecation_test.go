@@ -16,6 +16,7 @@ package e2e
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"sort"
 	"strings"
@@ -35,7 +36,7 @@ func createV2store(t testing.TB, lastReleaseBinary string, dataDirPath string) {
 	t.Log("Creating not-yet v2-deprecated etcd")
 
 	cfg := e2e.ConfigStandalone(e2e.EtcdProcessClusterConfig{ExecPath: lastReleaseBinary, EnableV2: true, DataDirPath: dataDirPath, SnapshotCount: 5})
-	epc, err := e2e.NewEtcdProcessCluster(t, cfg)
+	epc, err := e2e.NewEtcdProcessCluster(context.TODO(), t, cfg)
 	assert.NoError(t, err)
 
 	defer func() {
@@ -54,7 +55,7 @@ func createV2store(t testing.TB, lastReleaseBinary string, dataDirPath string) {
 
 func assertVerifyCannotStartV2deprecationWriteOnly(t testing.TB, dataDirPath string) {
 	t.Log("Verify its infeasible to start etcd with --v2-deprecation=write-only mode")
-	proc, err := e2e.SpawnCmd([]string{e2e.BinDir + "/etcd", "--v2-deprecation=write-only", "--data-dir=" + dataDirPath}, nil)
+	proc, err := e2e.SpawnCmd([]string{e2e.BinPath.Etcd, "--v2-deprecation=write-only", "--data-dir=" + dataDirPath}, nil)
 	assert.NoError(t, err)
 
 	_, err = proc.Expect("detected disallowed custom content in v2store for stage --v2-deprecation=write-only")
@@ -63,7 +64,7 @@ func assertVerifyCannotStartV2deprecationWriteOnly(t testing.TB, dataDirPath str
 
 func assertVerifyCannotStartV2deprecationNotYet(t testing.TB, dataDirPath string) {
 	t.Log("Verify its infeasible to start etcd with --v2-deprecation=not-yet mode")
-	proc, err := e2e.SpawnCmd([]string{e2e.BinDir + "/etcd", "--v2-deprecation=not-yet", "--data-dir=" + dataDirPath}, nil)
+	proc, err := e2e.SpawnCmd([]string{e2e.BinPath.Etcd, "--v2-deprecation=not-yet", "--data-dir=" + dataDirPath}, nil)
 	assert.NoError(t, err)
 
 	_, err = proc.Expect(`invalid value "not-yet" for flag -v2-deprecation: invalid value "not-yet"`)
@@ -74,7 +75,7 @@ func TestV2DeprecationFlags(t *testing.T) {
 	e2e.BeforeTest(t)
 	dataDirPath := t.TempDir()
 
-	lastReleaseBinary := e2e.BinDir + "/etcd-last-release"
+	lastReleaseBinary := e2e.BinPath.EtcdLastRelease
 	if !fileutil.Exist(lastReleaseBinary) {
 		t.Skipf("%q does not exist", lastReleaseBinary)
 	}
@@ -97,19 +98,25 @@ func TestV2DeprecationSnapshotMatches(t *testing.T) {
 	e2e.BeforeTest(t)
 	lastReleaseData := t.TempDir()
 	currentReleaseData := t.TempDir()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	lastReleaseBinary := e2e.BinDir + "/etcd-last-release"
-	currentReleaseBinary := e2e.BinDir + "/etcd"
+	lastReleaseBinary := e2e.BinPath.EtcdLastRelease
+	currentReleaseBinary := e2e.BinPath.Etcd
 
 	if !fileutil.Exist(lastReleaseBinary) {
 		t.Skipf("%q does not exist", lastReleaseBinary)
 	}
 	snapshotCount := 10
 	epc := runEtcdAndCreateSnapshot(t, lastReleaseBinary, lastReleaseData, snapshotCount)
-	members1 := addAndRemoveKeysAndMembers(t, e2e.NewEtcdctl(epc.Cfg, epc.EndpointsV3()), snapshotCount)
+	cc1, err := e2e.NewEtcdctl(epc.Cfg, epc.EndpointsV3())
+	assert.NoError(t, err)
+	members1 := addAndRemoveKeysAndMembers(ctx, t, cc1, snapshotCount)
 	assert.NoError(t, epc.Close())
 	epc = runEtcdAndCreateSnapshot(t, currentReleaseBinary, currentReleaseData, snapshotCount)
-	members2 := addAndRemoveKeysAndMembers(t, e2e.NewEtcdctl(epc.Cfg, epc.EndpointsV3()), snapshotCount)
+	cc2, err := e2e.NewEtcdctl(epc.Cfg, epc.EndpointsV3())
+	assert.NoError(t, err)
+	members2 := addAndRemoveKeysAndMembers(ctx, t, cc2, snapshotCount)
 	assert.NoError(t, epc.Close())
 
 	assertSnapshotsMatch(t, lastReleaseData, currentReleaseData, func(data []byte) []byte {
@@ -130,33 +137,37 @@ func TestV2DeprecationSnapshotMatches(t *testing.T) {
 func TestV2DeprecationSnapshotRecover(t *testing.T) {
 	e2e.BeforeTest(t)
 	dataDir := t.TempDir()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	lastReleaseBinary := e2e.BinDir + "/etcd-last-release"
-	currentReleaseBinary := e2e.BinDir + "/etcd"
+	lastReleaseBinary := e2e.BinPath.EtcdLastRelease
+	currentReleaseBinary := e2e.BinPath.Etcd
 
 	if !fileutil.Exist(lastReleaseBinary) {
 		t.Skipf("%q does not exist", lastReleaseBinary)
 	}
 	epc := runEtcdAndCreateSnapshot(t, lastReleaseBinary, dataDir, 10)
 
-	cc := e2e.NewEtcdctl(epc.Cfg, epc.EndpointsV3())
-
-	lastReleaseGetResponse, err := cc.Get("", config.GetOptions{Prefix: true})
+	cc, err := e2e.NewEtcdctl(epc.Cfg, epc.EndpointsV3())
 	assert.NoError(t, err)
 
-	lastReleaseMemberListResponse, err := cc.MemberList()
+	lastReleaseGetResponse, err := cc.Get(ctx, "", config.GetOptions{Prefix: true})
+	assert.NoError(t, err)
+
+	lastReleaseMemberListResponse, err := cc.MemberList(ctx)
 	assert.NoError(t, err)
 
 	assert.NoError(t, epc.Close())
 	cfg := e2e.ConfigStandalone(e2e.EtcdProcessClusterConfig{ExecPath: currentReleaseBinary, DataDirPath: dataDir})
-	epc, err = e2e.NewEtcdProcessCluster(t, cfg)
+	epc, err = e2e.NewEtcdProcessCluster(context.TODO(), t, cfg)
 	assert.NoError(t, err)
 
-	cc = e2e.NewEtcdctl(epc.Cfg, epc.EndpointsV3())
-	currentReleaseGetResponse, err := cc.Get("", config.GetOptions{Prefix: true})
+	cc, err = e2e.NewEtcdctl(epc.Cfg, epc.EndpointsV3())
+	assert.NoError(t, err)
+	currentReleaseGetResponse, err := cc.Get(ctx, "", config.GetOptions{Prefix: true})
 	assert.NoError(t, err)
 
-	currentReleaseMemberListResponse, err := cc.MemberList()
+	currentReleaseMemberListResponse, err := cc.MemberList(ctx)
 	assert.NoError(t, err)
 
 	assert.Equal(t, lastReleaseGetResponse.Kvs, currentReleaseGetResponse.Kvs)
@@ -166,38 +177,38 @@ func TestV2DeprecationSnapshotRecover(t *testing.T) {
 
 func runEtcdAndCreateSnapshot(t testing.TB, binary, dataDir string, snapshotCount int) *e2e.EtcdProcessCluster {
 	cfg := e2e.ConfigStandalone(e2e.EtcdProcessClusterConfig{ExecPath: binary, DataDirPath: dataDir, SnapshotCount: snapshotCount, KeepDataDir: true})
-	epc, err := e2e.NewEtcdProcessCluster(t, cfg)
+	epc, err := e2e.NewEtcdProcessCluster(context.TODO(), t, cfg)
 	assert.NoError(t, err)
 	return epc
 }
 
-func addAndRemoveKeysAndMembers(t testing.TB, cc *e2e.EtcdctlV3, snapshotCount int) (members []uint64) {
+func addAndRemoveKeysAndMembers(ctx context.Context, t testing.TB, cc *e2e.EtcdctlV3, snapshotCount int) (members []uint64) {
 	// Execute some non-trivial key&member operation
 	for i := 0; i < snapshotCount*3; i++ {
-		err := cc.Put(fmt.Sprintf("%d", i), "1", config.PutOptions{})
+		err := cc.Put(ctx, fmt.Sprintf("%d", i), "1", config.PutOptions{})
 		assert.NoError(t, err)
 	}
-	member1, err := cc.MemberAddAsLearner("member1", []string{"http://127.0.0.1:2000"})
+	member1, err := cc.MemberAddAsLearner(ctx, "member1", []string{"http://127.0.0.1:2000"})
 	assert.NoError(t, err)
 	members = append(members, member1.Member.ID)
 
 	for i := 0; i < snapshotCount*2; i++ {
-		_, err = cc.Delete(fmt.Sprintf("%d", i), config.DeleteOptions{})
+		_, err = cc.Delete(ctx, fmt.Sprintf("%d", i), config.DeleteOptions{})
 		assert.NoError(t, err)
 	}
-	_, err = cc.MemberRemove(member1.Member.ID)
+	_, err = cc.MemberRemove(ctx, member1.Member.ID)
 	assert.NoError(t, err)
 
 	for i := 0; i < snapshotCount; i++ {
-		err = cc.Put(fmt.Sprintf("%d", i), "2", config.PutOptions{})
+		err = cc.Put(ctx, fmt.Sprintf("%d", i), "2", config.PutOptions{})
 		assert.NoError(t, err)
 	}
-	member2, err := cc.MemberAddAsLearner("member2", []string{"http://127.0.0.1:2001"})
+	member2, err := cc.MemberAddAsLearner(ctx, "member2", []string{"http://127.0.0.1:2001"})
 	assert.NoError(t, err)
 	members = append(members, member2.Member.ID)
 
 	for i := 0; i < snapshotCount/2; i++ {
-		err = cc.Put(fmt.Sprintf("%d", i), "3", config.PutOptions{})
+		err = cc.Put(ctx, fmt.Sprintf("%d", i), "3", config.PutOptions{})
 		assert.NoError(t, err)
 	}
 	return members

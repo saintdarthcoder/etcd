@@ -17,7 +17,9 @@ package framework
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
+	"time"
 
 	"go.etcd.io/etcd/client/pkg/v3/testutil"
 	"go.etcd.io/etcd/tests/v3/framework/config"
@@ -41,9 +43,12 @@ func (e e2eRunner) BeforeTest(t testing.TB) {
 
 func (e e2eRunner) NewCluster(ctx context.Context, t testing.TB, cfg config.ClusterConfig) Cluster {
 	e2eConfig := e2e.EtcdProcessClusterConfig{
-		InitialToken:      "new",
-		ClusterSize:       cfg.ClusterSize,
-		QuotaBackendBytes: cfg.QuotaBackendBytes,
+		InitialToken:               "new",
+		ClusterSize:                cfg.ClusterSize,
+		QuotaBackendBytes:          cfg.QuotaBackendBytes,
+		DisableStrictReconfigCheck: !cfg.StrictReconfigCheck,
+		AuthTokenOpts:              cfg.AuthToken,
+		SnapshotCount:              cfg.SnapshotCount,
 	}
 	switch cfg.ClientTLS {
 	case config.NoTLS:
@@ -70,19 +75,25 @@ func (e e2eRunner) NewCluster(ctx context.Context, t testing.TB, cfg config.Clus
 	default:
 		t.Fatalf("PeerTLS config %q not supported", cfg.PeerTLS)
 	}
-	epc, err := e2e.NewEtcdProcessCluster(t, &e2eConfig)
+	epc, err := e2e.NewEtcdProcessCluster(ctx, t, &e2eConfig)
 	if err != nil {
 		t.Fatalf("could not start etcd integrationCluster: %s", err)
 	}
-	return &e2eCluster{*epc}
+	return &e2eCluster{t, *epc}
 }
 
 type e2eCluster struct {
+	t testing.TB
 	e2e.EtcdProcessCluster
 }
 
-func (c *e2eCluster) Client() Client {
-	return e2eClient{e2e.NewEtcdctl(c.Cfg, c.EndpointsV3())}
+func (c *e2eCluster) Client(opts ...config.ClientOption) (Client, error) {
+	etcdctl, err := e2e.NewEtcdctl(c.Cfg, c.EndpointsV3(), opts...)
+	return e2eClient{etcdctl}, err
+}
+
+func (c *e2eCluster) Endpoints() []string {
+	return c.EndpointsV3()
 }
 
 func (c *e2eCluster) Members() (ms []Member) {
@@ -90,6 +101,72 @@ func (c *e2eCluster) Members() (ms []Member) {
 		ms = append(ms, e2eMember{EtcdProcess: proc, Cfg: c.Cfg})
 	}
 	return ms
+}
+
+// WaitLeader returns index of the member in c.Members() that is leader
+// or fails the test (if not established in 30s).
+func (c *e2eCluster) WaitLeader(t testing.TB) int {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return c.WaitMembersForLeader(ctx, t, c.Members())
+}
+
+// WaitMembersForLeader waits until given members agree on the same leader,
+// and returns its 'index' in the 'membs' list
+func (c *e2eCluster) WaitMembersForLeader(ctx context.Context, t testing.TB, membs []Member) int {
+	cc := MustClient(c.Client())
+
+	// ensure leader is up via linearizable get
+	for {
+		select {
+		case <-ctx.Done():
+			t.Fatal("WaitMembersForLeader timeout")
+		default:
+		}
+		_, err := cc.Get(ctx, "0", config.GetOptions{Timeout: 10*config.TickDuration + time.Second})
+		if err == nil || strings.Contains(err.Error(), "Key not found") {
+			break
+		}
+	}
+
+	leaders := make(map[uint64]struct{})
+	members := make(map[uint64]int)
+	for {
+		select {
+		case <-ctx.Done():
+			t.Fatal("WaitMembersForLeader timeout")
+		default:
+		}
+		for i := range membs {
+			resp, err := membs[i].Client().Status(ctx)
+			if err != nil {
+				if strings.Contains(err.Error(), "connection refused") {
+					// if member[i] has stopped
+					continue
+				} else {
+					t.Fatal(err)
+				}
+			}
+			members[resp[0].Header.MemberId] = i
+			leaders[resp[0].Leader] = struct{}{}
+		}
+		// members agree on the same leader
+		if len(leaders) == 1 {
+			break
+		}
+		leaders = make(map[uint64]struct{})
+		members = make(map[uint64]int)
+		time.Sleep(10 * config.TickDuration)
+	}
+	for l := range leaders {
+		if index, ok := members[l]; ok {
+			t.Logf("members agree on a leader, members:%v , leader:%v", members, l)
+			return index
+		}
+		t.Fatalf("members agree on a leader which is not one of members, members:%v , leader:%v", members, l)
+	}
+	t.Fatal("impossible path of execution")
+	return -1
 }
 
 type e2eClient struct {
@@ -102,11 +179,15 @@ type e2eMember struct {
 }
 
 func (m e2eMember) Client() Client {
-	return e2eClient{e2e.NewEtcdctl(m.Cfg, m.EndpointsV3())}
+	etcdctl, err := e2e.NewEtcdctl(m.Cfg, m.EndpointsV3())
+	if err != nil {
+		panic(err)
+	}
+	return e2eClient{etcdctl}
 }
 
-func (m e2eMember) Start() error {
-	return m.Restart()
+func (m e2eMember) Start(ctx context.Context) error {
+	return m.EtcdProcess.Start(ctx)
 }
 
 func (m e2eMember) Stop() {

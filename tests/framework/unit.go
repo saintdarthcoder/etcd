@@ -27,7 +27,7 @@ import (
 
 type unitRunner struct{}
 
-var _ testRunner = (*unitRunner)(nil)
+var _ TestRunner = (*unitRunner)(nil)
 
 func (e unitRunner) TestMain(m *testing.M) {
 	flag.Parse()

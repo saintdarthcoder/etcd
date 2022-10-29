@@ -19,15 +19,14 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"go.etcd.io/etcd/api/v3/authpb"
-	"go.etcd.io/etcd/server/v3/storage/schema"
 	"go.uber.org/zap"
 
+	bolt "go.etcd.io/bbolt"
+	"go.etcd.io/etcd/api/v3/authpb"
 	"go.etcd.io/etcd/api/v3/mvccpb"
 	"go.etcd.io/etcd/server/v3/lease/leasepb"
 	"go.etcd.io/etcd/server/v3/storage/backend"
-
-	bolt "go.etcd.io/bbolt"
+	"go.etcd.io/etcd/server/v3/storage/schema"
 )
 
 func snapDir(dataDir string) string {
@@ -135,6 +134,9 @@ func authUsersDecoder(k, v []byte) {
 func metaDecoder(k, v []byte) {
 	if string(k) == string(schema.MetaConsistentIndexKeyName) || string(k) == string(schema.MetaTermKeyName) {
 		fmt.Printf("key=%q, value=%v\n", k, binary.BigEndian.Uint64(v))
+	} else if string(k) == string(schema.ScheduledCompactKeyName) || string(k) == string(schema.FinishedCompactKeyName) {
+		rev := bytesToRev(v)
+		fmt.Printf("key=%q, value=%v\n", k, rev)
 	} else {
 		defaultDecoder(k, v)
 	}

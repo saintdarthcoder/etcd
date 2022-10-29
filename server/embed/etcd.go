@@ -227,15 +227,14 @@ func StartEtcd(inCfg *Config) (e *Etcd, err error) {
 
 	if srvcfg.ExperimentalEnableDistributedTracing {
 		tctx := context.Background()
-		tracingExporter, opts, err := setupTracingExporter(tctx, cfg)
+		tracingExporter, err := newTracingExporter(tctx, cfg)
 		if err != nil {
 			return e, err
 		}
-		if tracingExporter == nil || len(opts) == 0 {
-			return e, fmt.Errorf("error setting up distributed tracing")
+		e.tracingExporterShutdown = func() {
+			tracingExporter.Close(tctx)
 		}
-		e.tracingExporterShutdown = func() { tracingExporter.Shutdown(tctx) }
-		srvcfg.ExperimentalTracerOptions = opts
+		srvcfg.ExperimentalTracerOptions = tracingExporter.opts
 
 		e.cfg.logger.Info(
 			"distributed tracing setup enabled",
@@ -328,6 +327,8 @@ func print(lg *zap.Logger, ec Config, sc config.ServerConfig, memberInitialized 
 		zap.String("wait-cluster-ready-timeout", sc.WaitClusterReadyTimeout.String()),
 		zap.Bool("initial-election-tick-advance", sc.InitialElectionTickAdvance),
 		zap.Uint64("snapshot-count", sc.SnapshotCount),
+		zap.Uint("max-wals", sc.MaxWALFiles),
+		zap.Uint("max-snapshots", sc.MaxSnapFiles),
 		zap.Uint64("snapshot-catchup-entries", sc.SnapshotCatchUpEntries),
 		zap.Strings("initial-advertise-peer-urls", ec.getAPURLs()),
 		zap.Strings("listen-peer-urls", ec.getLPURLs()),
@@ -666,12 +667,6 @@ func configureClientListeners(cfg *Config) (sctxs map[string]*serveCtx, err erro
 			sctx.l = transport.LimitListener(sctx.l, int(fdLimit-reservedInternalFDNum))
 		}
 
-		if network == "tcp" {
-			if sctx.l, err = transport.NewKeepAliveListener(sctx.l, network, nil); err != nil {
-				return nil, err
-			}
-		}
-
 		defer func(u url.URL) {
 			if err == nil {
 				return
@@ -714,7 +709,7 @@ func (e *Etcd) serveClients() (err error) {
 	etcdhttp.HandleMetrics(mux)
 	etcdhttp.HandleHealth(e.cfg.logger, mux, e.Server)
 
-	gopts := []grpc.ServerOption{}
+	var gopts []grpc.ServerOption
 	if e.cfg.GRPCKeepAliveMinTime > time.Duration(0) {
 		gopts = append(gopts, grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
 			MinTime:             e.cfg.GRPCKeepAliveMinTime,

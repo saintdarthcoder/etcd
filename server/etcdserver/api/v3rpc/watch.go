@@ -24,6 +24,8 @@ import (
 	pb "go.etcd.io/etcd/api/v3/etcdserverpb"
 	"go.etcd.io/etcd/api/v3/mvccpb"
 	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
+	"go.etcd.io/etcd/client/pkg/v3/verify"
+	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.etcd.io/etcd/server/v3/auth"
 	"go.etcd.io/etcd/server/v3/etcdserver"
 	"go.etcd.io/etcd/server/v3/etcdserver/apply"
@@ -224,16 +226,16 @@ func (ws *watchServer) Watch(stream pb.Watch_WatchServer) (err error) {
 	return err
 }
 
-func (sws *serverWatchStream) isWatchPermitted(wcr *pb.WatchCreateRequest) bool {
+func (sws *serverWatchStream) isWatchPermitted(wcr *pb.WatchCreateRequest) error {
 	authInfo, err := sws.ag.AuthInfoFromCtx(sws.gRPCStream.Context())
 	if err != nil {
-		return false
+		return err
 	}
 	if authInfo == nil {
 		// if auth is enabled, IsRangePermitted() can cause an error
 		authInfo = &auth.AuthInfo{}
 	}
-	return sws.ag.AuthStore().IsRangePermitted(authInfo, wcr.Key, wcr.RangeEnd) == nil
+	return sws.ag.AuthStore().IsRangePermitted(authInfo, wcr.Key, wcr.RangeEnd)
 }
 
 func (sws *serverWatchStream) recvLoop() error {
@@ -267,13 +269,29 @@ func (sws *serverWatchStream) recvLoop() error {
 				creq.RangeEnd = []byte{}
 			}
 
-			if !sws.isWatchPermitted(creq) {
+			err := sws.isWatchPermitted(creq)
+			if err != nil {
+				var cancelReason string
+				switch err {
+				case auth.ErrInvalidAuthToken:
+					cancelReason = rpctypes.ErrGRPCInvalidAuthToken.Error()
+				case auth.ErrAuthOldRevision:
+					cancelReason = rpctypes.ErrGRPCAuthOldRevision.Error()
+				case auth.ErrUserEmpty:
+					cancelReason = rpctypes.ErrGRPCUserEmpty.Error()
+				default:
+					if err != auth.ErrPermissionDenied {
+						sws.lg.Error("unexpected error code", zap.Error(err))
+					}
+					cancelReason = rpctypes.ErrGRPCPermissionDenied.Error()
+				}
+
 				wr := &pb.WatchResponse{
 					Header:       sws.newResponseHeader(sws.watchStream.Rev()),
-					WatchId:      creq.WatchId,
+					WatchId:      clientv3.InvalidWatchID,
 					Canceled:     true,
 					Created:      true,
-					CancelReason: rpctypes.ErrGRPCPermissionDenied.Error(),
+					CancelReason: cancelReason,
 				}
 
 				select {
@@ -304,7 +322,10 @@ func (sws *serverWatchStream) recvLoop() error {
 					sws.fragment[id] = true
 				}
 				sws.mu.Unlock()
+			} else {
+				id = clientv3.InvalidWatchID
 			}
+
 			wr := &pb.WatchResponse{
 				Header:   sws.newResponseHeader(wsrev),
 				WatchId:  int64(id),
@@ -341,13 +362,14 @@ func (sws *serverWatchStream) recvLoop() error {
 			if uv.ProgressRequest != nil {
 				sws.ctrlStream <- &pb.WatchResponse{
 					Header:  sws.newResponseHeader(sws.watchStream.Rev()),
-					WatchId: -1, // response is not associated with any WatchId and will be broadcast to all watch channels
+					WatchId: clientv3.InvalidWatchID, // response is not associated with any WatchId and will be broadcast to all watch channels
 				}
 			}
 		default:
 			// we probably should not shutdown the entire stream when
-			// receive an valid command.
+			// receive an invalid command.
 			// so just do nothing instead.
+			sws.lg.Sugar().Infof("invalid watch request type %T received in gRPC stream", uv)
 			continue
 		}
 	}
@@ -464,7 +486,10 @@ func (sws *serverWatchStream) sendLoop() {
 
 			// track id creation
 			wid := mvcc.WatchID(c.WatchId)
-			if c.Canceled {
+
+			verify.Assert(!(c.Canceled && c.Created) || wid == clientv3.InvalidWatchID, "unexpected watchId: %d, wanted: %d, since both 'Canceled' and 'Created' are true", wid, clientv3.InvalidWatchID)
+
+			if c.Canceled && wid != clientv3.InvalidWatchID {
 				delete(ids, wid)
 				continue
 			}

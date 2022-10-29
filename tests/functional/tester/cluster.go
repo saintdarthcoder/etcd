@@ -43,10 +43,9 @@ import (
 type Cluster struct {
 	lg *zap.Logger
 
-	agentConns    []*grpc.ClientConn
-	agentClients  []rpcpb.TransportClient
-	agentStreams  []rpcpb.Transport_TransportClient
-	agentRequests []*rpcpb.Request
+	agentConns   []*grpc.ClientConn
+	agentClients []rpcpb.TransportClient
+	agentStreams []rpcpb.Transport_TransportClient
 
 	testerHTTPServer *http.Server
 
@@ -80,7 +79,6 @@ func NewCluster(lg *zap.Logger, fpath string) (*Cluster, error) {
 	clus.agentConns = make([]*grpc.ClientConn, len(clus.Members))
 	clus.agentClients = make([]rpcpb.TransportClient, len(clus.Members))
 	clus.agentStreams = make([]rpcpb.Transport_TransportClient, len(clus.Members))
-	clus.agentRequests = make([]*rpcpb.Request, len(clus.Members))
 	clus.cases = make([]Case, 0)
 
 	lg.Info("creating members")
@@ -260,16 +258,16 @@ func (clus *Cluster) updateCases() {
 			fpFailures, fperr := failpointFailures(clus)
 			if len(fpFailures) == 0 {
 				clus.lg.Info("no failpoints found!", zap.Error(fperr))
+			} else {
+				clus.cases = append(clus.cases, fpFailures...)
 			}
-			clus.cases = append(clus.cases,
-				fpFailures...)
 		case "FAILPOINTS_WITH_DISK_IO_LATENCY":
 			fpFailures, fperr := failpointDiskIOFailures(clus)
 			if len(fpFailures) == 0 {
 				clus.lg.Info("no failpoints found!", zap.Error(fperr))
+			} else {
+				clus.cases = append(clus.cases, fpFailures...)
 			}
-			clus.cases = append(clus.cases,
-				fpFailures...)
 		}
 	}
 }
@@ -296,8 +294,8 @@ func (clus *Cluster) UpdateDelayLatencyMs() {
 
 func (clus *Cluster) setStresserChecker() {
 	css := &compositeStresser{}
-	lss := []*leaseStresser{}
-	rss := []*runnerStresser{}
+	var lss []*leaseStresser
+	var rss []*runnerStresser
 	for _, m := range clus.Members {
 		sss := newStresser(clus, m)
 		css.stressers = append(css.stressers, &compositeStresser{sss})
@@ -395,9 +393,14 @@ func (clus *Cluster) Send_INITIAL_START_ETCD() error {
 	return clus.broadcast(rpcpb.Operation_INITIAL_START_ETCD)
 }
 
-// send_SIGQUIT_ETCD_AND_ARCHIVE_DATA sends "send_SIGQUIT_ETCD_AND_ARCHIVE_DATA" operation.
+// send_SIGQUIT_ETCD_AND_ARCHIVE_DATA sends "Operation_SIGQUIT_ETCD_AND_ARCHIVE_DATA" operation.
 func (clus *Cluster) send_SIGQUIT_ETCD_AND_ARCHIVE_DATA() error {
 	return clus.broadcast(rpcpb.Operation_SIGQUIT_ETCD_AND_ARCHIVE_DATA)
+}
+
+// Send_SIGQUIT_ETCD_AND_REMOVE_DATA sends "Operation_SIGQUIT_ETCD_AND_REMOVE_DATA" operation.
+func (clus *Cluster) Send_SIGQUIT_ETCD_AND_REMOVE_DATA() error {
+	return clus.broadcast(rpcpb.Operation_SIGQUIT_ETCD_AND_REMOVE_DATA)
 }
 
 // send_RESTART_ETCD sends restart operation.
@@ -419,33 +422,12 @@ func (clus *Cluster) broadcast(op rpcpb.Operation) error {
 	wg.Wait()
 	close(errc)
 
-	errs := []string{}
+	var errs []string
 	for err := range errc {
 		if err == nil {
 			continue
 		}
-
-		if err != nil {
-			destroyed := false
-			if op == rpcpb.Operation_SIGQUIT_ETCD_AND_REMOVE_DATA_AND_STOP_AGENT {
-				if err == io.EOF {
-					destroyed = true
-				}
-				if strings.Contains(err.Error(),
-					"rpc error: code = Unavailable desc = transport is closing") {
-					// agent server has already closed;
-					// so this error is expected
-					destroyed = true
-				}
-				if strings.Contains(err.Error(),
-					"desc = os: process already finished") {
-					destroyed = true
-				}
-			}
-			if !destroyed {
-				errs = append(errs, err.Error())
-			}
-		}
+		errs = append(errs, err.Error())
 	}
 
 	if len(errs) == 0 {
@@ -462,13 +444,13 @@ func (clus *Cluster) sendOp(idx int, op rpcpb.Operation) error {
 func (clus *Cluster) sendOpWithResp(idx int, op rpcpb.Operation) (*rpcpb.Response, error) {
 	// maintain the initial member object
 	// throughout the test time
-	clus.agentRequests[idx] = &rpcpb.Request{
+	req := &rpcpb.Request{
 		Operation: op,
 		Member:    clus.Members[idx],
 		Tester:    clus.Tester,
 	}
 
-	err := clus.agentStreams[idx].Send(clus.agentRequests[idx])
+	err := clus.agentStreams[idx].Send(req)
 	clus.lg.Info(
 		"sent request",
 		zap.String("operation", op.String()),
@@ -576,28 +558,6 @@ func (clus *Cluster) sendOpWithResp(idx int, op rpcpb.Operation) (*rpcpb.Respons
 	}
 
 	return resp, nil
-}
-
-// Send_SIGQUIT_ETCD_AND_REMOVE_DATA_AND_STOP_AGENT terminates all tester connections to agents and etcd servers.
-func (clus *Cluster) Send_SIGQUIT_ETCD_AND_REMOVE_DATA_AND_STOP_AGENT() {
-	err := clus.broadcast(rpcpb.Operation_SIGQUIT_ETCD_AND_REMOVE_DATA_AND_STOP_AGENT)
-	if err != nil {
-		clus.lg.Warn("destroying etcd/agents FAIL", zap.Error(err))
-	} else {
-		clus.lg.Info("destroying etcd/agents PASS")
-	}
-
-	for i, conn := range clus.agentConns {
-		err := conn.Close()
-		clus.lg.Info("closed connection to agent", zap.String("agent-address", clus.Members[i].AgentAddr), zap.Error(err))
-	}
-
-	if clus.testerHTTPServer != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		err := clus.testerHTTPServer.Shutdown(ctx)
-		cancel()
-		clus.lg.Info("closed tester HTTP server", zap.String("tester-address", clus.Tester.Addr), zap.Error(err))
-	}
 }
 
 // WaitHealth ensures all members are healthy

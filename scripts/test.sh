@@ -124,6 +124,11 @@ function e2e_pass {
   run_for_module "tests" go_test "./common/..." "keep_going" : --tags=e2e -timeout="${TIMEOUT:-30m}" "${RUN_ARG[@]}" "$@"
 }
 
+function linearizability_pass {
+  # e2e tests are running pre-build binary. Settings like --race,-cover,-cpu does not have any impact.
+  run_for_module "tests" go_test "./linearizability/..." "keep_going" : -timeout="${TIMEOUT:-30m}" "${RUN_ARG[@]}" "$@"
+}
+
 function integration_e2e_pass {
   run_pass "integration" "${@}"
   run_pass "e2e" "${@}"
@@ -146,6 +151,14 @@ function generic_checker {
   fi
 }
 
+function killall_functional_test {
+  log_callout "Killing all etcd-agent and etcd processes..."
+  killall -9 etcd-agent
+  # When functional test is successful, the etcd processes have already been
+  # stopped by the agent, so we should ignore the error in this case.
+  killall -9 etcd || true
+}
+
 function functional_pass {
   run ./tests/functional/build.sh || exit 1
 
@@ -155,8 +168,6 @@ function functional_pass {
   # TODO: These ports should be dynamically allocated instead of hard-coded.
   for a in 1 2 3; do
     ./bin/etcd-agent --network tcp --address 127.0.0.1:${a}9027 < /dev/null &
-    pid="$!"
-    agent_pids="${agent_pids} $pid"
   done
 
   for a in 1 2 3; do
@@ -166,32 +177,28 @@ function functional_pass {
     done
   done
 
+  trap killall_functional_test 0
+
   log_callout "functional test START!"
   run ./bin/etcd-tester --config ./tests/functional/functional.yaml -test.v && log_success "'etcd-tester' succeeded"
   local etcd_tester_exit_code=$?
 
   if [[ "${etcd_tester_exit_code}" -ne "0" ]]; then
     log_error "ETCD_TESTER_EXIT_CODE:" ${etcd_tester_exit_code}
-    exit 1
-  fi
 
-  # shellcheck disable=SC2206
-  agent_pids=($agent_pids)
-  kill -s TERM "${agent_pids[@]}" || true
+    log_error -e "\\nFAILED! 'tail -100 /tmp/etcd-functional-1/etcd.log'"
+    tail -100 /tmp/etcd-functional-1/etcd.log
 
-  if [[ "${etcd_tester_exit_code}" -ne "0" ]]; then
-    log_error -e "\\nFAILED! 'tail -1000 /tmp/etcd-functional-1/etcd.log'"
-    tail -1000 /tmp/etcd-functional-1/etcd.log
+    log_error -e "\\nFAILED! 'tail -100 /tmp/etcd-functional-2/etcd.log'"
+    tail -100 /tmp/etcd-functional-2/etcd.log
 
-    log_error -e "\\nFAILED! 'tail -1000 /tmp/etcd-functional-2/etcd.log'"
-    tail -1000 /tmp/etcd-functional-2/etcd.log
-
-    log_error -e "\\nFAILED! 'tail -1000 /tmp/etcd-functional-3/etcd.log'"
-    tail -1000 /tmp/etcd-functional-3/etcd.log
+    log_error -e "\\nFAILED! 'tail -100 /tmp/etcd-functional-3/etcd.log'"
+    tail -100 /tmp/etcd-functional-3/etcd.log
 
     log_error "--- FAIL: exit code" ${etcd_tester_exit_code}
-    return ${etcd_tester_exit_code}
+    exit ${etcd_tester_exit_code}
   fi
+
   log_success "functional test PASS!"
 }
 
@@ -381,29 +388,6 @@ function cov_pass {
 }
 
 ######### Code formatting checkers #############################################
-
-function fmt_pass {
-  toggle_failpoints disable
-
-  # TODO: add "unparam","staticcheck", "unconvert", "ineffasign","nakedret"
-  # after resolving ore-existing errors.
-  # markdown_you  -  too sensitive check was temporarilly disbled. 
-  for p in shellcheck \
-      goword \
-      gofmt \
-      govet \
-      revive \
-      license_header \
-      receiver_name \
-      mod_tidy \
-      dep \
-      shellcheck \
-      shellws \
-      proto_annotations \
-      ; do
-    run_pass "${p}" "${@}"
-  done
-}
 
 function shellcheck_pass {
   if tool_exists "shellcheck" "https://github.com/koalaman/shellcheck#installing"; then

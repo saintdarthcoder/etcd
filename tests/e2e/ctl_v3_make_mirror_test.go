@@ -15,6 +15,7 @@
 package e2e
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -29,7 +30,7 @@ func TestCtlV3MakeMirrorWithWatchRev(t *testing.T)     { testCtl(t, makeMirrorWi
 
 func makeMirrorTest(cx ctlCtx) {
 	var (
-		flags  = []string{}
+		flags  []string
 		kvs    = []kv{{"key1", "val1"}, {"key2", "val2"}, {"key3", "val3"}}
 		kvs2   = []kvExec{{key: "key1", val: "val1"}, {key: "key2", val: "val2"}, {key: "key3", val: "val3"}}
 		prefix = "key"
@@ -83,7 +84,7 @@ func testMirrorCommand(cx ctlCtx, flags []string, sourcekvs []kv, destkvs []kvEx
 		dialTimeout: 7 * time.Second,
 	}
 
-	mirrorepc, err := e2e.NewEtcdProcessCluster(cx.t, &mirrorctx.cfg)
+	mirrorepc, err := e2e.NewEtcdProcessCluster(context.TODO(), cx.t, &mirrorctx.cfg)
 	if err != nil {
 		cx.t.Fatalf("could not start etcd process cluster (%v)", err)
 	}

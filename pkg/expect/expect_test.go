@@ -17,9 +17,12 @@
 package expect
 
 import (
+	"context"
 	"os"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestExpectFunc(t *testing.T) {
@@ -28,7 +31,7 @@ func TestExpectFunc(t *testing.T) {
 		t.Fatal(err)
 	}
 	wstr := "hello world\r\n"
-	l, eerr := ep.ExpectFunc(func(a string) bool { return len(a) > 10 })
+	l, eerr := ep.ExpectFunc(context.Background(), func(a string) bool { return len(a) > 10 })
 	if eerr != nil {
 		t.Fatal(eerr)
 	}
@@ -40,12 +43,40 @@ func TestExpectFunc(t *testing.T) {
 	}
 }
 
+func TestExpectFuncTimeout(t *testing.T) {
+	ep, err := NewExpect("tail", "-f", "/dev/null")
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		// It's enough to have "talkative" process to stuck in the infinite loop of reading
+		for {
+			err := ep.Send("new line\n")
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	_, err = ep.ExpectFunc(ctx, func(a string) bool { return false })
+
+	require.ErrorAs(t, err, &context.DeadlineExceeded)
+
+	if err = ep.Stop(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestEcho(t *testing.T) {
 	ep, err := NewExpect("echo", "hello world")
 	if err != nil {
 		t.Fatal(err)
 	}
-	l, eerr := ep.Expect("world")
+	ctx := context.Background()
+	l, eerr := ep.ExpectWithContext(ctx, "world")
 	if eerr != nil {
 		t.Fatal(eerr)
 	}
@@ -56,7 +87,7 @@ func TestEcho(t *testing.T) {
 	if cerr := ep.Close(); cerr != nil {
 		t.Fatal(cerr)
 	}
-	if _, eerr = ep.Expect("..."); eerr == nil {
+	if _, eerr = ep.ExpectWithContext(ctx, "..."); eerr == nil {
 		t.Fatalf("expected error on closed expect process")
 	}
 }
@@ -67,7 +98,7 @@ func TestLineCount(t *testing.T) {
 		t.Fatal(err)
 	}
 	wstr := "3"
-	l, eerr := ep.Expect(wstr)
+	l, eerr := ep.ExpectWithContext(context.Background(), wstr)
 	if eerr != nil {
 		t.Fatal(eerr)
 	}
@@ -90,7 +121,7 @@ func TestSend(t *testing.T) {
 	if err := ep.Send("a\r"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ep.Expect("b"); err != nil {
+	if _, err := ep.ExpectWithContext(context.Background(), "b"); err != nil {
 		t.Fatal(err)
 	}
 	if err := ep.Stop(); err != nil {

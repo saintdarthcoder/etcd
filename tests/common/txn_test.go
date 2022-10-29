@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	pb "go.etcd.io/etcd/api/v3/etcdserverpb"
 	clientv3 "go.etcd.io/etcd/client/v3"
+	"go.etcd.io/etcd/tests/v3/framework"
 	"go.etcd.io/etcd/tests/v3/framework/config"
 	"go.etcd.io/etcd/tests/v3/framework/testutils"
 )
@@ -60,16 +61,16 @@ func TestTxnSucc(t *testing.T) {
 			defer cancel()
 			clus := testRunner.NewCluster(ctx, t, cfg.config)
 			defer clus.Close()
-			cc := clus.Client()
+			cc := framework.MustClient(clus.Client())
 			testutils.ExecuteUntil(ctx, t, func() {
-				if err := cc.Put("key1", "value1", config.PutOptions{}); err != nil {
+				if err := cc.Put(ctx, "key1", "value1", config.PutOptions{}); err != nil {
 					t.Fatalf("could not create key:%s, value:%s", "key1", "value1")
 				}
-				if err := cc.Put("key2", "value2", config.PutOptions{}); err != nil {
+				if err := cc.Put(ctx, "key2", "value2", config.PutOptions{}); err != nil {
 					t.Fatalf("could not create key:%s, value:%s", "key2", "value2")
 				}
 				for _, req := range reqs {
-					resp, err := cc.Txn(req.compare, req.ifSucess, req.ifFail, config.TxnOptions{
+					resp, err := cc.Txn(ctx, req.compare, req.ifSucess, req.ifFail, config.TxnOptions{
 						Interactive: true,
 					})
 					if err != nil {
@@ -104,13 +105,13 @@ func TestTxnFail(t *testing.T) {
 			defer cancel()
 			clus := testRunner.NewCluster(ctx, t, cfg.config)
 			defer clus.Close()
-			cc := clus.Client()
+			cc := framework.MustClient(clus.Client())
 			testutils.ExecuteUntil(ctx, t, func() {
-				if err := cc.Put("key1", "value1", config.PutOptions{}); err != nil {
+				if err := cc.Put(ctx, "key1", "value1", config.PutOptions{}); err != nil {
 					t.Fatalf("could not create key:%s, value:%s", "key1", "value1")
 				}
 				for _, req := range reqs {
-					resp, err := cc.Txn(req.compare, req.ifSucess, req.ifFail, config.TxnOptions{
+					resp, err := cc.Txn(ctx, req.compare, req.ifSucess, req.ifFail, config.TxnOptions{
 						Interactive: true,
 					})
 					if err != nil {
@@ -124,7 +125,7 @@ func TestTxnFail(t *testing.T) {
 }
 
 func getRespValues(r *clientv3.TxnResponse) []string {
-	ss := []string{}
+	var ss []string
 	if r.Succeeded {
 		ss = append(ss, "SUCCESS")
 	} else {

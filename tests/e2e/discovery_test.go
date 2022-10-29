@@ -38,12 +38,12 @@ func TestTLSClusterOf3UsingDiscovery(t *testing.T) { testClusterUsingDiscovery(t
 func testClusterUsingDiscovery(t *testing.T, size int, peerTLS bool) {
 	e2e.BeforeTest(t)
 
-	lastReleaseBinary := e2e.BinDir + "/etcd-last-release"
+	lastReleaseBinary := e2e.BinPath.EtcdLastRelease
 	if !fileutil.Exist(lastReleaseBinary) {
 		t.Skipf("%q does not exist", lastReleaseBinary)
 	}
 
-	dc, err := e2e.NewEtcdProcessCluster(t, &e2e.EtcdProcessClusterConfig{
+	dc, err := e2e.NewEtcdProcessCluster(context.TODO(), t, &e2e.EtcdProcessClusterConfig{
 		BasePort:    2000,
 		ExecPath:    lastReleaseBinary,
 		ClusterSize: 1,
@@ -62,7 +62,7 @@ func testClusterUsingDiscovery(t *testing.T, size int, peerTLS bool) {
 	}
 	cancel()
 
-	c, err := e2e.NewEtcdProcessCluster(t, &e2e.EtcdProcessClusterConfig{
+	c, err := e2e.NewEtcdProcessCluster(context.TODO(), t, &e2e.EtcdProcessClusterConfig{
 		BasePort:    3000,
 		ClusterSize: size,
 		IsPeerTLS:   peerTLS,
@@ -73,7 +73,7 @@ func testClusterUsingDiscovery(t *testing.T, size int, peerTLS bool) {
 	}
 	defer c.Close()
 
-	kubectl := []string{e2e.CtlBinPath, "--endpoints", strings.Join(c.EndpointsV3(), ",")}
+	kubectl := []string{e2e.BinPath.Etcdctl, "--endpoints", strings.Join(c.EndpointsV3(), ",")}
 	if err := e2e.SpawnWithExpect(append(kubectl, "put", "key", "value"), "OK"); err != nil {
 		t.Fatal(err)
 	}

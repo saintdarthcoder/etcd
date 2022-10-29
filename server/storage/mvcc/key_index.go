@@ -19,7 +19,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/google/btree"
 	"go.uber.org/zap"
 )
 
@@ -37,11 +36,12 @@ var (
 // For example: put(1.0);put(2.0);tombstone(3.0);put(4.0);tombstone(5.0) on key "foo"
 // generate a keyIndex:
 // key:     "foo"
-// rev: 5
+// modified: 5
 // generations:
-//    {empty}
-//    {4.0, 5.0(t)}
-//    {1.0, 2.0, 3.0(t)}
+//
+//	{empty}
+//	{4.0, 5.0(t)}
+//	{1.0, 2.0, 3.0(t)}
 //
 // Compact a keyIndex removes the versions with smaller or equal to
 // rev except the largest one. If the generation becomes empty
@@ -51,22 +51,26 @@ var (
 // For example:
 // compact(2) on the previous example
 // generations:
-//    {empty}
-//    {4.0, 5.0(t)}
-//    {2.0, 3.0(t)}
+//
+//	{empty}
+//	{4.0, 5.0(t)}
+//	{2.0, 3.0(t)}
 //
 // compact(4)
 // generations:
-//    {empty}
-//    {4.0, 5.0(t)}
+//
+//	{empty}
+//	{4.0, 5.0(t)}
 //
 // compact(5):
 // generations:
-//    {empty} -> key SHOULD be removed.
+//
+//	{empty} -> key SHOULD be removed.
 //
 // compact(6):
 // generations:
-//    {empty} -> key SHOULD be removed.
+//
+//	{empty} -> key SHOULD be removed.
 type keyIndex struct {
 	key         []byte
 	modified    revision // the main rev of the last modification
@@ -300,8 +304,8 @@ func (ki *keyIndex) findGeneration(rev int64) *generation {
 	return nil
 }
 
-func (ki *keyIndex) Less(b btree.Item) bool {
-	return bytes.Compare(ki.key, b.(*keyIndex).key) == -1
+func (ki *keyIndex) Less(bki *keyIndex) bool {
+	return bytes.Compare(ki.key, bki.key) == -1
 }
 
 func (ki *keyIndex) equal(b *keyIndex) bool {

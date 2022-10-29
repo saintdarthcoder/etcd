@@ -94,13 +94,15 @@ func corruptTest(cx ctlCtx) {
 
 	cx.t.Log("waiting for etcd[0] failure...")
 	// restarting corrupted member should fail
-	e2e.WaitReadyExpectProc(proc, []string{fmt.Sprintf("etcdmain: %016x found data inconsistency with peers", id0)})
+	e2e.WaitReadyExpectProc(context.TODO(), proc, []string{fmt.Sprintf("etcdmain: %016x found data inconsistency with peers", id0)})
 }
 
 func TestPeriodicCheckDetectsCorruption(t *testing.T) {
 	checkTime := time.Second
 	e2e.BeforeTest(t)
-	epc, err := e2e.NewEtcdProcessCluster(t, &e2e.EtcdProcessClusterConfig{
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	epc, err := e2e.NewEtcdProcessCluster(ctx, t, &e2e.EtcdProcessClusterConfig{
 		ClusterSize:      3,
 		KeepDataDir:      true,
 		CorruptCheckTime: time.Second,
@@ -114,14 +116,15 @@ func TestPeriodicCheckDetectsCorruption(t *testing.T) {
 		}
 	})
 
-	cc := e2e.NewEtcdctl(epc.Cfg, epc.EndpointsV3())
+	cc, err := e2e.NewEtcdctl(epc.Cfg, epc.EndpointsV3())
+	assert.NoError(t, err)
 
 	for i := 0; i < 10; i++ {
-		err := cc.Put(testutil.PickKey(int64(i)), fmt.Sprint(i), config.PutOptions{})
+		err := cc.Put(ctx, testutil.PickKey(int64(i)), fmt.Sprint(i), config.PutOptions{})
 		assert.NoError(t, err, "error on put")
 	}
 
-	members, err := cc.MemberList()
+	members, err := cc.MemberList(ctx)
 	assert.NoError(t, err, "error on member list")
 	var memberID uint64
 	for _, m := range members.Members {
@@ -134,10 +137,10 @@ func TestPeriodicCheckDetectsCorruption(t *testing.T) {
 	err = testutil.CorruptBBolt(datadir.ToBackendFileName(epc.Procs[0].Config().DataDirPath))
 	assert.NoError(t, err)
 
-	err = epc.Procs[0].Restart()
+	err = epc.Procs[0].Restart(context.TODO())
 	assert.NoError(t, err)
 	time.Sleep(checkTime * 11 / 10)
-	alarmResponse, err := cc.AlarmList()
+	alarmResponse, err := cc.AlarmList(ctx)
 	assert.NoError(t, err, "error on alarm list")
 	assert.Equal(t, []*etcdserverpb.AlarmMember{{Alarm: etcdserverpb.AlarmType_CORRUPT, MemberID: memberID}}, alarmResponse.Alarms)
 }
@@ -145,7 +148,9 @@ func TestPeriodicCheckDetectsCorruption(t *testing.T) {
 func TestCompactHashCheckDetectCorruption(t *testing.T) {
 	checkTime := time.Second
 	e2e.BeforeTest(t)
-	epc, err := e2e.NewEtcdProcessCluster(t, &e2e.EtcdProcessClusterConfig{
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	epc, err := e2e.NewEtcdProcessCluster(ctx, t, &e2e.EtcdProcessClusterConfig{
 		ClusterSize:             3,
 		KeepDataDir:             true,
 		CompactHashCheckEnabled: true,
@@ -160,13 +165,14 @@ func TestCompactHashCheckDetectCorruption(t *testing.T) {
 		}
 	})
 
-	cc := e2e.NewEtcdctl(epc.Cfg, epc.EndpointsV3())
+	cc, err := e2e.NewEtcdctl(epc.Cfg, epc.EndpointsV3())
+	assert.NoError(t, err)
 
 	for i := 0; i < 10; i++ {
-		err := cc.Put(testutil.PickKey(int64(i)), fmt.Sprint(i), config.PutOptions{})
+		err := cc.Put(ctx, testutil.PickKey(int64(i)), fmt.Sprint(i), config.PutOptions{})
 		assert.NoError(t, err, "error on put")
 	}
-	members, err := cc.MemberList()
+	members, err := cc.MemberList(ctx)
 	assert.NoError(t, err, "error on member list")
 	var memberID uint64
 	for _, m := range members.Members {
@@ -179,12 +185,12 @@ func TestCompactHashCheckDetectCorruption(t *testing.T) {
 	err = testutil.CorruptBBolt(datadir.ToBackendFileName(epc.Procs[0].Config().DataDirPath))
 	assert.NoError(t, err)
 
-	err = epc.Procs[0].Restart()
+	err = epc.Procs[0].Restart(ctx)
 	assert.NoError(t, err)
-	_, err = cc.Compact(5, config.CompactOption{})
+	_, err = cc.Compact(ctx, 5, config.CompactOption{})
 	assert.NoError(t, err)
 	time.Sleep(checkTime * 11 / 10)
-	alarmResponse, err := cc.AlarmList()
+	alarmResponse, err := cc.AlarmList(ctx)
 	assert.NoError(t, err, "error on alarm list")
 	assert.Equal(t, []*etcdserverpb.AlarmMember{{Alarm: etcdserverpb.AlarmType_CORRUPT, MemberID: memberID}}, alarmResponse.Alarms)
 }

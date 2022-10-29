@@ -15,6 +15,7 @@
 package e2e
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -50,7 +51,7 @@ func TestClusterVersion(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			binary := e2e.BinDir + "/etcd"
+			binary := e2e.BinPath.Etcd
 			if !fileutil.Exist(binary) {
 				t.Skipf("%q does not exist", binary)
 			}
@@ -61,7 +62,7 @@ func TestClusterVersion(t *testing.T) {
 			cfg.BaseScheme = "unix" // to avoid port conflict
 			cfg.RollingStart = tt.rollingStart
 
-			epc, err := e2e.NewEtcdProcessCluster(t, cfg)
+			epc, err := e2e.NewEtcdProcessCluster(context.TODO(), t, cfg)
 			if err != nil {
 				t.Fatalf("could not start etcd process cluster (%v)", err)
 			}
@@ -121,12 +122,12 @@ func dialWithSchemeTest(cx ctlCtx) {
 }
 
 type ctlCtx struct {
-	t                 *testing.T
-	apiPrefix         string
-	cfg               e2e.EtcdProcessClusterConfig
-	quotaBackendBytes int64
-	corruptFunc       func(string) error
-	noStrictReconfig  bool
+	t         *testing.T
+	apiPrefix string
+	cfg       e2e.EtcdProcessClusterConfig
+
+	corruptFunc                func(string) error
+	disableStrictReconfigCheck bool
 
 	epc *e2e.EtcdProcessCluster
 
@@ -143,9 +144,6 @@ type ctlCtx struct {
 
 	initialCorruptCheck bool
 
-	// for compaction
-	compactPhysical bool
-
 	// dir that was used during the test
 	dataDir string
 }
@@ -156,6 +154,7 @@ func (cx *ctlCtx) applyOpts(opts []ctlOption) {
 	for _, opt := range opts {
 		opt(cx)
 	}
+
 	cx.initialCorruptCheck = true
 }
 
@@ -179,10 +178,6 @@ func withInteractive() ctlOption {
 	return func(cx *ctlCtx) { cx.interactive = true }
 }
 
-func withQuota(b int64) ctlOption {
-	return func(cx *ctlCtx) { cx.quotaBackendBytes = b }
-}
-
 func withInitialCorruptCheck() ctlOption {
 	return func(cx *ctlCtx) { cx.initialCorruptCheck = true }
 }
@@ -191,8 +186,8 @@ func withCorruptFunc(f func(string) error) ctlOption {
 	return func(cx *ctlCtx) { cx.corruptFunc = f }
 }
 
-func withNoStrictReconfig() ctlOption {
-	return func(cx *ctlCtx) { cx.noStrictReconfig = true }
+func withDisableStrictReconfig() ctlOption {
+	return func(cx *ctlCtx) { cx.disableStrictReconfigCheck = true }
 }
 
 func withApiPrefix(p string) ctlOption {
@@ -232,10 +227,7 @@ func testCtlWithOffline(t *testing.T, testFunc func(ctlCtx), testOfflineFunc fun
 	if !ret.quorum {
 		ret.cfg = *e2e.ConfigStandalone(ret.cfg)
 	}
-	if ret.quotaBackendBytes > 0 {
-		ret.cfg.QuotaBackendBytes = ret.quotaBackendBytes
-	}
-	ret.cfg.NoStrictReconfig = ret.noStrictReconfig
+	ret.cfg.DisableStrictReconfigCheck = ret.disableStrictReconfigCheck
 	if ret.initialCorruptCheck {
 		ret.cfg.InitialCorruptCheck = ret.initialCorruptCheck
 	}
@@ -243,7 +235,7 @@ func testCtlWithOffline(t *testing.T, testFunc func(ctlCtx), testOfflineFunc fun
 		ret.cfg.KeepDataDir = true
 	}
 
-	epc, err := e2e.NewEtcdProcessCluster(t, &ret.cfg)
+	epc, err := e2e.NewEtcdProcessCluster(context.TODO(), t, &ret.cfg)
 	if err != nil {
 		t.Fatalf("could not start etcd process cluster (%v)", err)
 	}
@@ -328,7 +320,7 @@ func (cx *ctlCtx) prefixArgs(eps []string) []string {
 
 	useEnv := cx.envMap != nil
 
-	cmdArgs := []string{e2e.CtlBinPath}
+	cmdArgs := []string{e2e.BinPath.Etcdctl}
 	for k, v := range fmap {
 		if useEnv {
 			ek := flags.FlagToEnv("ETCDCTL", k)
@@ -349,7 +341,7 @@ func (cx *ctlCtx) PrefixArgs() []string {
 // PrefixArgsUtl returns prefix of the command that is etcdutl
 // Please not thet 'utl' compatible commands does not consume --endpoints flag.
 func (cx *ctlCtx) PrefixArgsUtl() []string {
-	return []string{e2e.UtlBinPath}
+	return []string{e2e.BinPath.Etcdutl}
 }
 
 func isGRPCTimedout(err error) bool {

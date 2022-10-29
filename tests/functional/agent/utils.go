@@ -15,6 +15,7 @@
 package agent
 
 import (
+	"fmt"
 	"io"
 	"net"
 	"net/url"
@@ -100,6 +101,46 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	return w.Sync()
+}
+
+func safeDataToFile(filePath string, fileData []byte, mode os.FileMode) error {
+	if filePath != "" {
+		if len(fileData) == 0 {
+			return fmt.Errorf("got empty data for %q", filePath)
+		}
+		if err := os.WriteFile(filePath, fileData, mode); err != nil {
+			return fmt.Errorf("writing file %q failed, %w", filePath, err)
+		}
+	}
+	return nil
+}
+
+func loadFileData(filePath string) ([]byte, error) {
+	if !fileutil.Exist(filePath) {
+		return nil, fmt.Errorf("cannot find %q", filePath)
+	}
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("read file %q failed, %w", filePath, err)
+	}
+	return data, nil
+}
+
+func checkTCPConnect(lg *zap.Logger, target string) error {
+	for i := 0; i < 10; i++ {
+		if conn, err := net.Dial("tcp", target); err != nil {
+			lg.Error("The target isn't reachable", zap.Int("retries", i), zap.String("target", target), zap.Error(err))
+		} else {
+			if conn != nil {
+				conn.Close()
+				lg.Info("The target is reachable", zap.Int("retries", i), zap.String("target", target))
+				return nil
+			}
+			lg.Error("The target isn't reachable due to the returned conn is nil", zap.Int("retries", i), zap.String("target", target))
+		}
+		time.Sleep(time.Second)
+	}
+	return fmt.Errorf("timed out waiting for the target (%s) to be reachable", target)
 }
 
 func cleanPageCache() error {

@@ -15,6 +15,7 @@
 package e2e
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -170,10 +171,8 @@ func testIssue6361(t *testing.T) {
 	}
 
 	e2e.BeforeTest(t)
-	os.Setenv("ETCDCTL_API", "3")
-	defer os.Unsetenv("ETCDCTL_API")
 
-	epc, err := e2e.NewEtcdProcessCluster(t, &e2e.EtcdProcessClusterConfig{
+	epc, err := e2e.NewEtcdProcessCluster(context.TODO(), t, &e2e.EtcdProcessClusterConfig{
 		ClusterSize:  1,
 		InitialToken: "new",
 		KeepDataDir:  true,
@@ -188,7 +187,7 @@ func testIssue6361(t *testing.T) {
 	}()
 
 	dialTimeout := 10 * time.Second
-	prefixArgs := []string{e2e.CtlBinPath, "--endpoints", strings.Join(epc.EndpointsV3(), ","), "--dial-timeout", dialTimeout.String()}
+	prefixArgs := []string{e2e.BinPath.Etcdctl, "--endpoints", strings.Join(epc.EndpointsV3(), ","), "--dial-timeout", dialTimeout.String()}
 
 	t.Log("Writing some keys...")
 	kvs := []kv{{"foo1", "val1"}, {"foo2", "val2"}, {"foo3", "val3"}}
@@ -215,7 +214,7 @@ func testIssue6361(t *testing.T) {
 
 	newDataDir := filepath.Join(t.TempDir(), "test.data")
 	t.Log("etcdctl restoring the snapshot...")
-	err = e2e.SpawnWithExpect([]string{e2e.UtlBinPath, "snapshot", "restore", fpath, "--name", epc.Procs[0].Config().Name, "--initial-cluster", epc.Procs[0].Config().InitialCluster, "--initial-cluster-token", epc.Procs[0].Config().InitialToken, "--initial-advertise-peer-urls", epc.Procs[0].Config().Purl.String(), "--data-dir", newDataDir}, "added member")
+	err = e2e.SpawnWithExpect([]string{e2e.BinPath.Etcdutl, "snapshot", "restore", fpath, "--name", epc.Procs[0].Config().Name, "--initial-cluster", epc.Procs[0].Config().InitialCluster, "--initial-cluster-token", epc.Procs[0].Config().InitialToken, "--initial-advertise-peer-urls", epc.Procs[0].Config().Purl.String(), "--data-dir", newDataDir}, "added member")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,7 +226,7 @@ func testIssue6361(t *testing.T) {
 			epc.Procs[0].Config().Args[i+1] = newDataDir
 		}
 	}
-	if err = epc.Procs[0].Restart(); err != nil {
+	if err = epc.Procs[0].Restart(context.TODO()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -266,7 +265,7 @@ func testIssue6361(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	prefixArgs = []string{e2e.CtlBinPath, "--endpoints", clientURL, "--dial-timeout", dialTimeout.String()}
+	prefixArgs = []string{e2e.BinPath.Etcdctl, "--endpoints", clientURL, "--dial-timeout", dialTimeout.String()}
 
 	t.Log("Ensuring added member has data from incoming snapshot...")
 	for i := range kvs {

@@ -34,6 +34,7 @@ import (
 
 	"go.etcd.io/etcd/client/pkg/v3/fileutil"
 	"go.etcd.io/etcd/client/pkg/v3/tlsutil"
+	"go.etcd.io/etcd/client/pkg/v3/verify"
 
 	"go.uber.org/zap"
 )
@@ -68,7 +69,7 @@ func newListener(addr, scheme string, opts ...ListenerOption) (net.Listener, err
 		fallthrough
 	case lnOpts.IsTimeout(), lnOpts.IsSocketOpts():
 		// timeout listener with socket options.
-		ln, err := lnOpts.ListenConfig.Listen(context.TODO(), "tcp", addr)
+		ln, err := newKeepAliveListener(&lnOpts.ListenConfig, addr)
 		if err != nil {
 			return nil, err
 		}
@@ -78,7 +79,7 @@ func newListener(addr, scheme string, opts ...ListenerOption) (net.Listener, err
 			writeTimeout: lnOpts.writeTimeout,
 		}
 	case lnOpts.IsTimeout():
-		ln, err := net.Listen("tcp", addr)
+		ln, err := newKeepAliveListener(nil, addr)
 		if err != nil {
 			return nil, err
 		}
@@ -88,7 +89,7 @@ func newListener(addr, scheme string, opts ...ListenerOption) (net.Listener, err
 			writeTimeout: lnOpts.writeTimeout,
 		}
 	default:
-		ln, err := net.Listen("tcp", addr)
+		ln, err := newKeepAliveListener(nil, addr)
 		if err != nil {
 			return nil, err
 		}
@@ -100,6 +101,19 @@ func newListener(addr, scheme string, opts ...ListenerOption) (net.Listener, err
 		return lnOpts.Listener, nil
 	}
 	return wrapTLS(scheme, lnOpts.tlsInfo, lnOpts.Listener)
+}
+
+func newKeepAliveListener(cfg *net.ListenConfig, addr string) (ln net.Listener, err error) {
+	if cfg != nil {
+		ln, err = cfg.Listen(context.TODO(), "tcp", addr)
+	} else {
+		ln, err = net.Listen("tcp", addr)
+	}
+	if err != nil {
+		return
+	}
+
+	return NewKeepAliveListener(ln, "tcp", nil)
 }
 
 func wrapTLS(scheme string, tlsinfo *TLSInfo, l net.Listener) (net.Listener, error) {
@@ -183,6 +197,7 @@ func (info TLSInfo) Empty() bool {
 }
 
 func SelfCert(lg *zap.Logger, dirpath string, hosts []string, selfSignedCertValidity uint, additionalUsages ...x509.ExtKeyUsage) (info TLSInfo, err error) {
+	verify.Assert(lg != nil, "nil log isn't allowed")
 	info.Logger = lg
 	if selfSignedCertValidity == 0 {
 		err = fmt.Errorf("selfSignedCertValidity is invalid,it should be greater than 0")
@@ -326,8 +341,8 @@ func SelfCert(lg *zap.Logger, dirpath string, hosts []string, selfSignedCertVali
 // Previously,
 // 1. Server has non-empty (*tls.Config).Certificates on client hello
 // 2. Server calls (*tls.Config).GetCertificate iff:
-//    - Server's (*tls.Config).Certificates is not empty, or
-//    - Client supplies SNI; non-empty (*tls.ClientHelloInfo).ServerName
+//   - Server's (*tls.Config).Certificates is not empty, or
+//   - Client supplies SNI; non-empty (*tls.ClientHelloInfo).ServerName
 //
 // When (*tls.Config).Certificates is always populated on initial handshake,
 // client is expected to provide a valid matching SNI to pass the TLS

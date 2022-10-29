@@ -19,7 +19,6 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"strings"
 
 	"go.etcd.io/etcd/pkg/v3/proxy"
 	"go.etcd.io/etcd/server/v3/embed"
@@ -102,17 +101,16 @@ func (srv *Server) StartServe() error {
 		zap.String("listener-address", srv.ln.Addr().String()),
 	)
 	err = srv.grpcServer.Serve(srv.ln)
-	if err != nil && strings.Contains(err.Error(), "use of closed network connection") {
-		srv.lg.Info(
-			"gRPC server is shut down",
+	if err != nil {
+		srv.lg.Warn(
+			"gRPC server is stopped with error",
 			zap.String("address", srv.address),
 			zap.Error(err),
 		)
 	} else {
-		srv.lg.Warn(
-			"gRPC server returned with error",
+		srv.lg.Info(
+			"gRPC server is stopped",
 			zap.String("address", srv.address),
-			zap.Error(err),
 		)
 	}
 	return err
@@ -137,12 +135,6 @@ func (srv *Server) Transport(stream rpcpb.Transport_TransportServer) (reterr err
 				errc <- err
 				// TODO: handle error and retry
 				return
-			}
-			if req.Member != nil {
-				srv.Member = req.Member
-			}
-			if req.Tester != nil {
-				srv.Tester = req.Tester
 			}
 
 			var resp *rpcpb.Response

@@ -9,6 +9,15 @@
 		]
 	},
 	{
+		"project": "github.com/anishathalye/porcupine",
+		"licenses": [
+			{
+				"type": "MIT License",
+				"confidence": 1
+			}
+		]
+	},
+	{
 		"project": "github.com/benbjohnson/clock",
 		"licenses": [
 			{
@@ -189,7 +198,7 @@
 		]
 	},
 	{
-		"project": "github.com/golang-jwt/jwt",
+		"project": "github.com/golang-jwt/jwt/v4",
 		"licenses": [
 			{
 				"type": "MIT License",

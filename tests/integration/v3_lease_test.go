@@ -26,6 +26,7 @@ import (
 	"go.etcd.io/etcd/api/v3/mvccpb"
 	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
 	"go.etcd.io/etcd/client/pkg/v3/testutil"
+	framecfg "go.etcd.io/etcd/tests/v3/framework/config"
 	"go.etcd.io/etcd/tests/v3/framework/integration"
 
 	"google.golang.org/grpc/codes"
@@ -391,7 +392,7 @@ func TestV3LeaseCheckpoint(t *testing.T) {
 				leaderId := clus.WaitLeader(t)
 				leader := clus.Members[leaderId]
 				leader.Stop(t)
-				time.Sleep(time.Duration(3*integration.ElectionTicks) * integration.TickDuration)
+				time.Sleep(time.Duration(3*integration.ElectionTicks) * framecfg.TickDuration)
 				leader.Restart(t)
 			}
 
@@ -457,7 +458,7 @@ func TestV3LeaseLeases(t *testing.T) {
 	defer cancel0()
 
 	// create leases
-	ids := []int64{}
+	var ids []int64
 	for i := 0; i < 5; i++ {
 		lresp, err := integration.ToGRPC(clus.RandClient()).Lease.LeaseGrant(
 			ctx0,
@@ -522,11 +523,11 @@ func testLeaseStress(t *testing.T, stresser func(context.Context, pb.LeaseClient
 	errc := make(chan error)
 
 	if useClusterClient {
+		clusterClient, err := clus.ClusterClient(t)
+		if err != nil {
+			t.Fatal(err)
+		}
 		for i := 0; i < 300; i++ {
-			clusterClient, err := clus.ClusterClient()
-			if err != nil {
-				t.Fatal(err)
-			}
 			go func(i int) { errc <- stresser(ctx, integration.ToGRPC(clusterClient).Lease) }(i)
 		}
 	} else {

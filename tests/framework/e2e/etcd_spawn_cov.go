@@ -20,60 +20,33 @@ package e2e
 import (
 	"fmt"
 	"os"
-	"strings"
-	"syscall"
 	"time"
 
 	"go.etcd.io/etcd/client/pkg/v3/fileutil"
-	"go.etcd.io/etcd/pkg/v3/expect"
-	"go.etcd.io/etcd/tests/v3/framework/integration"
-	"go.uber.org/zap"
+	"go.etcd.io/etcd/tests/v3/framework/testutils"
 )
 
 const noOutputLineCount = 2 // cov-enabled binaries emit PASS and coverage count lines
 
 var (
-	coverDir = integration.MustAbsPath(os.Getenv("COVERDIR"))
+	coverDir = testutils.MustAbsPath(os.Getenv("COVERDIR"))
 )
 
-func SpawnCmdWithLogger(lg *zap.Logger, args []string, envVars map[string]string) (*expect.ExpectProcess, error) {
-	cmd := args[0]
-	env := mergeEnvVariables(envVars)
-	switch {
-	case strings.HasSuffix(cmd, "/etcd"):
-		cmd = cmd + "_test"
-	case strings.HasSuffix(cmd, "/etcdctl"):
-		cmd = cmd + "_test"
-	case strings.HasSuffix(cmd, "/etcdutl"):
-		cmd = cmd + "_test"
-	case strings.HasSuffix(cmd, "/etcdctl3"):
-		cmd = CtlBinPath + "_test"
-		env = append(env, "ETCDCTL_API=3")
-	}
-
-	wd, err := os.Getwd()
-	if err != nil {
-		return nil, err
-	}
-
-	covArgs, err := getCovArgs()
-	if err != nil {
-		return nil, err
-	}
-	// when withFlagByEnv() is used in testCtl(), env variables for ctl is set to os.env.
-	// they must be included in ctl_cov_env.
-
-	all_args := append(args[1:], covArgs...)
-	lg.Info("spawning process", zap.Strings("args", all_args), zap.String("working-dir", wd))
-	ep, err := expect.NewExpectWithEnv(cmd, all_args, env)
-	if err != nil {
-		return nil, err
-	}
-	ep.StopSignal = syscall.SIGTERM
-	return ep, nil
+func init() {
+	initBinPath = initBinPathCov
+	additionalArgs = additionalArgsCov
 }
 
-func getCovArgs() ([]string, error) {
+func initBinPathCov(binDir string) binPath {
+	return binPath{
+		Etcd:            binDir + "/etcd_test",
+		EtcdLastRelease: binDir + "/etcd-last-release",
+		Etcdctl:         binDir + "/etcdctl_test",
+		Etcdutl:         binDir + "/etcdutl_test",
+	}
+}
+
+func additionalArgsCov() ([]string, error) {
 	if !fileutil.Exist(coverDir) {
 		return nil, fmt.Errorf("could not find coverage folder: %s", coverDir)
 	}

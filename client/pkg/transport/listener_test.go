@@ -24,6 +24,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"go.uber.org/zap/zaptest"
 )
 
@@ -204,6 +205,15 @@ func TestNewListenerWithSocketOpts(t *testing.T) {
 			}
 			if !test.expectedErr && err != nil {
 				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if test.scheme == "http" {
+				lnOpts := newListenOpts(test.opts...)
+				if !lnOpts.IsSocketOpts() && !lnOpts.IsTimeout() {
+					if _, ok := ln.(*keepaliveListener); !ok {
+						t.Fatalf("ln: unexpected listener type: %T, wanted *keepaliveListener", ln)
+					}
+				}
 			}
 		})
 	}
@@ -519,6 +529,7 @@ func TestNewListenerUnixSocket(t *testing.T) {
 // TestNewListenerTLSInfoSelfCert tests that a new certificate accepts connections.
 func TestNewListenerTLSInfoSelfCert(t *testing.T) {
 	tmpdir := t.TempDir()
+
 	tlsinfo, err := SelfCert(zaptest.NewLogger(t), tmpdir, []string{"127.0.0.1"}, 1)
 	if err != nil {
 		t.Fatal(err)
@@ -527,6 +538,10 @@ func TestNewListenerTLSInfoSelfCert(t *testing.T) {
 		t.Fatalf("tlsinfo should have certs (%+v)", tlsinfo)
 	}
 	testNewListenerTLSInfoAccept(t, tlsinfo)
+
+	assert.Panics(t, func() {
+		SelfCert(nil, tmpdir, []string{"127.0.0.1"}, 1)
+	}, "expected panic with nil log")
 }
 
 func TestIsClosedConnError(t *testing.T) {

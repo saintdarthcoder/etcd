@@ -1,6 +1,6 @@
 module go.etcd.io/etcd/etcdctl/v3
 
-go 1.17
+go 1.19
 
 require (
 	github.com/bgentry/speakeasy v0.1.0
@@ -33,8 +33,8 @@ require (
 	github.com/rivo/uniseg v0.2.0 // indirect
 	go.uber.org/atomic v1.7.0 // indirect
 	go.uber.org/multierr v1.7.0 // indirect
-	golang.org/x/net v0.0.0-20220105145211-5b0dc2dfae98 // indirect
-	golang.org/x/sys v0.0.0-20220114195835-da31bd327af9 // indirect
+	golang.org/x/net v0.0.0-20220919171627-f8f703f97925 // indirect
+	golang.org/x/sys v0.0.0-20220728004956-3c1f35247d10 // indirect
 	golang.org/x/text v0.3.7 // indirect
 	google.golang.org/genproto v0.0.0-20211118181313-81c1377c94b1 // indirect
 	google.golang.org/protobuf v1.27.1 // indirect
@@ -43,12 +43,8 @@ require (
 replace (
 	go.etcd.io/etcd/api/v3 => ../api
 	go.etcd.io/etcd/client/pkg/v3 => ../client/pkg
-	go.etcd.io/etcd/client/v2 => ../client/v2
 	go.etcd.io/etcd/client/v3 => ../client/v3
-	go.etcd.io/etcd/etcdutl/v3 => ../etcdutl
 	go.etcd.io/etcd/pkg/v3 => ../pkg
-	go.etcd.io/etcd/raft/v3 => ../raft
-	go.etcd.io/etcd/server/v3 => ../server
 )
 
 // Bad imports are sometimes causing attempts to pull that code.

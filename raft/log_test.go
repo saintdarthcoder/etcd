@@ -146,12 +146,14 @@ func TestAppend(t *testing.T) {
 
 // TestLogMaybeAppend ensures:
 // If the given (index, term) matches with the existing log:
-// 	1. If an existing entry conflicts with a new one (same index
-// 	but different terms), delete the existing entry and all that
-// 	follow it
-// 	2.Append any new entries not already in the log
+//  1. If an existing entry conflicts with a new one (same index
+//     but different terms), delete the existing entry and all that
+//     follow it
+//     2.Append any new entries not already in the log
+//
 // If the given (index, term) does not match with the existing log:
-// 	return false
+//
+//	return false
 func TestLogMaybeAppend(t *testing.T) {
 	previousEnts := []pb.Entry{{Index: 1, Term: 1}, {Index: 2, Term: 2}, {Index: 3, Term: 3}}
 	lastindex := uint64(3)
@@ -216,7 +218,7 @@ func TestLogMaybeAppend(t *testing.T) {
 			lastterm, lastindex, lastindex + 2, []pb.Entry{{Index: lastindex + 1, Term: 4}, {Index: lastindex + 2, Term: 4}},
 			lastindex + 2, true, lastindex + 2, false,
 		},
-		// match with the the entry in the middle
+		// match with the entry in the middle
 		{
 			lastterm - 1, lastindex - 1, lastindex, []pb.Entry{{Index: lastindex, Term: 4}},
 			lastindex, true, lastindex, false,
@@ -528,7 +530,7 @@ func TestStableToWithSnap(t *testing.T) {
 	}
 }
 
-//TestCompaction ensures that the number of log entries is correct after compactions.
+// TestCompaction ensures that the number of log entries is correct after compactions.
 func TestCompaction(t *testing.T) {
 	tests := []struct {
 		lastIndex uint64

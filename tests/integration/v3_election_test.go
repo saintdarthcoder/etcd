@@ -20,7 +20,7 @@ import (
 	"testing"
 	"time"
 
-	"go.etcd.io/etcd/client/v3"
+	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.etcd.io/etcd/client/v3/concurrency"
 	"go.etcd.io/etcd/tests/v3/framework/integration"
 )
@@ -40,7 +40,7 @@ func TestElectionWait(t *testing.T) {
 	}()
 
 	electedc := make(chan string)
-	nextc := []chan struct{}{}
+	var nextc []chan struct{}
 
 	// wait for all elections
 	donec := make(chan struct{})
@@ -208,7 +208,6 @@ func TestElectionSessionRecampaign(t *testing.T) {
 // candidate can be elected on a new key that is a prefix
 // of an existing key. To wit, check for regression
 // of bug #6278. https://github.com/etcd-io/etcd/issues/6278
-//
 func TestElectionOnPrefixOfExistingKey(t *testing.T) {
 	integration.BeforeTest(t)
 	clus := integration.NewCluster(t, &integration.ClusterConfig{Size: 1})

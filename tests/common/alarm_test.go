@@ -22,6 +22,7 @@ import (
 	"time"
 
 	clientv3 "go.etcd.io/etcd/client/v3"
+	"go.etcd.io/etcd/tests/v3/framework"
 	"go.etcd.io/etcd/tests/v3/framework/config"
 	"go.etcd.io/etcd/tests/v3/framework/testutils"
 )
@@ -30,19 +31,24 @@ func TestAlarm(t *testing.T) {
 	testRunner.BeforeTest(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	clus := testRunner.NewCluster(ctx, t, config.ClusterConfig{ClusterSize: 1, QuotaBackendBytes: int64(13 * os.Getpagesize())})
+	cfg := config.NewClusterConfig(
+		config.WithClusterSize(1),
+		config.WithQuotaBackendBytes(int64(13*os.Getpagesize())),
+	)
+	clus := testRunner.NewCluster(ctx, t, cfg)
 	defer clus.Close()
+	cc := framework.MustClient(clus.Client())
 	testutils.ExecuteUntil(ctx, t, func() {
 		// test small put still works
 		smallbuf := strings.Repeat("a", 64)
-		if err := clus.Client().Put("1st_test", smallbuf, config.PutOptions{}); err != nil {
+		if err := cc.Put(ctx, "1st_test", smallbuf, config.PutOptions{}); err != nil {
 			t.Fatalf("alarmTest: put kv error (%v)", err)
 		}
 
 		// write some chunks to fill up the database
 		buf := strings.Repeat("b", os.Getpagesize())
 		for {
-			if err := clus.Client().Put("2nd_test", buf, config.PutOptions{}); err != nil {
+			if err := cc.Put(ctx, "2nd_test", buf, config.PutOptions{}); err != nil {
 				if !strings.Contains(err.Error(), "etcdserver: mvcc: database space exceeded") {
 					t.Fatal(err)
 				}
@@ -51,20 +57,20 @@ func TestAlarm(t *testing.T) {
 		}
 
 		// quota alarm should now be on
-		alarmResp, err := clus.Client().AlarmList()
+		alarmResp, err := cc.AlarmList(ctx)
 		if err != nil {
 			t.Fatalf("alarmTest: Alarm error (%v)", err)
 		}
 
 		// check that Put is rejected when alarm is on
-		if err := clus.Client().Put("3rd_test", smallbuf, config.PutOptions{}); err != nil {
+		if err := cc.Put(ctx, "3rd_test", smallbuf, config.PutOptions{}); err != nil {
 			if !strings.Contains(err.Error(), "etcdserver: mvcc: database space exceeded") {
 				t.Fatal(err)
 			}
 		}
 
 		// get latest revision to compact
-		sresp, err := clus.Client().Status()
+		sresp, err := cc.Status(ctx)
 		if err != nil {
 			t.Fatalf("get endpoint status error: %v", err)
 		}
@@ -77,12 +83,12 @@ func TestAlarm(t *testing.T) {
 		}
 
 		// make some space
-		_, err = clus.Client().Compact(rvs, config.CompactOption{Physical: true, Timeout: 10 * time.Second})
+		_, err = cc.Compact(ctx, rvs, config.CompactOption{Physical: true, Timeout: 10 * time.Second})
 		if err != nil {
 			t.Fatalf("alarmTest: Compact error (%v)", err)
 		}
 
-		if err = clus.Client().Defragment(config.DefragOption{Timeout: 10 * time.Second}); err != nil {
+		if err = cc.Defragment(ctx, config.DefragOption{Timeout: 10 * time.Second}); err != nil {
 			t.Fatalf("alarmTest: defrag error (%v)", err)
 		}
 
@@ -92,15 +98,41 @@ func TestAlarm(t *testing.T) {
 				MemberID: alarm.MemberID,
 				Alarm:    alarm.Alarm,
 			}
-			_, err = clus.Client().AlarmDisarm(alarmMember)
+			_, err = cc.AlarmDisarm(ctx, alarmMember)
 			if err != nil {
 				t.Fatalf("alarmTest: Alarm error (%v)", err)
 			}
 		}
 
 		// put one more key below quota
-		if err := clus.Client().Put("4th_test", smallbuf, config.PutOptions{}); err != nil {
+		if err := cc.Put(ctx, "4th_test", smallbuf, config.PutOptions{}); err != nil {
 			t.Fatal(err)
+		}
+	})
+}
+
+func TestAlarmlistOnMemberRestart(t *testing.T) {
+	testRunner.BeforeTest(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	clus := testRunner.NewCluster(ctx, t, config.NewClusterConfig(
+		config.WithClusterSize(1),
+		config.WithQuotaBackendBytes(int64(13*os.Getpagesize())),
+		config.WithSnapshotCount(5),
+	))
+	defer clus.Close()
+	cc := framework.MustClient(clus.Client())
+
+	testutils.ExecuteUntil(ctx, t, func() {
+		for i := 0; i < 6; i++ {
+			if _, err := cc.AlarmList(ctx); err != nil {
+				t.Fatalf("Unexpected error: %v", err)
+			}
+		}
+
+		clus.Members()[0].Stop()
+		if err := clus.Members()[0].Start(ctx); err != nil {
+			t.Fatalf("failed to start etcdserver: %v", err)
 		}
 	})
 }

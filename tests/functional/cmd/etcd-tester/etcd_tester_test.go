@@ -38,17 +38,17 @@ func TestFunctional(t *testing.T) {
 		t.Fatalf("failed to create a cluster: %v", err)
 	}
 
-	err = clus.Send_INITIAL_START_ETCD()
-	if err != nil {
+	if err = clus.Send_INITIAL_START_ETCD(); err != nil {
 		t.Fatal("Bootstrap failed", zap.Error(err))
 	}
-	defer clus.Send_SIGQUIT_ETCD_AND_REMOVE_DATA_AND_STOP_AGENT()
 
 	t.Log("wait health after bootstrap")
-	err = clus.WaitHealth()
-	if err != nil {
+	if err = clus.WaitHealth(); err != nil {
 		t.Fatal("WaitHealth failed", zap.Error(err))
 	}
 
-	clus.Run(t)
+	if err := clus.Run(t); err == nil {
+		// Only stop etcd and cleanup data when test is successful.
+		clus.Send_SIGQUIT_ETCD_AND_REMOVE_DATA()
+	}
 }

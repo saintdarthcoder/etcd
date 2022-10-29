@@ -240,12 +240,12 @@ func TestFollowerVote(t *testing.T) {
 		nvote   uint64
 		wreject bool
 	}{
-		{None, 1, false},
 		{None, 2, false},
-		{1, 1, false},
+		{None, 3, false},
 		{2, 2, false},
-		{1, 2, true},
-		{2, 1, true},
+		{3, 3, false},
+		{2, 3, true},
+		{3, 2, true},
 	}
 	for i, tt := range tests {
 		r := newTestRaft(1, 10, 1, newTestMemoryStorage(withPeers(1, 2, 3)))
@@ -473,9 +473,9 @@ func TestLeaderCommitEntry(t *testing.T) {
 // Reference: section 5.3
 func TestLeaderAcknowledgeCommit(t *testing.T) {
 	tests := []struct {
-		size      int
-		acceptors map[uint64]bool
-		wack      bool
+		size               int
+		nonLeaderAcceptors map[uint64]bool
+		wack               bool
 	}{
 		{1, nil, true},
 		{3, nil, false},
@@ -496,8 +496,11 @@ func TestLeaderAcknowledgeCommit(t *testing.T) {
 		li := r.raftLog.lastIndex()
 		r.Step(pb.Message{From: 1, To: 1, Type: pb.MsgProp, Entries: []pb.Entry{{Data: []byte("some data")}}})
 
-		for _, m := range r.readMessages() {
-			if tt.acceptors[m.To] {
+		rd := newReady(r, &SoftState{}, pb.HardState{})
+		s.Append(rd.Entries)
+		r.advance(rd) // simulate having appended entry on leader
+		for _, m := range rd.Messages {
+			if tt.nonLeaderAcceptors[m.To] {
 				r.Step(acceptAndReply(m))
 			}
 		}
@@ -891,6 +894,9 @@ func TestLeaderOnlyCommitsLogFromCurrentTerm(t *testing.T) {
 		r.Step(pb.Message{From: 1, To: 1, Type: pb.MsgProp, Entries: []pb.Entry{{}}})
 
 		r.Step(pb.Message{From: 2, To: 1, Type: pb.MsgAppResp, Term: r.Term, Index: tt.index})
+		rd := newReady(r, &SoftState{}, pb.HardState{})
+		storage.Append(rd.Entries)
+		r.advance(rd)
 		if r.raftLog.committed != tt.wcommit {
 			t.Errorf("#%d: commit = %d, want %d", i, r.raftLog.committed, tt.wcommit)
 		}

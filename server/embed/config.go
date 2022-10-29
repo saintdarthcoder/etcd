@@ -32,7 +32,7 @@ import (
 	"go.etcd.io/etcd/client/pkg/v3/tlsutil"
 	"go.etcd.io/etcd/client/pkg/v3/transport"
 	"go.etcd.io/etcd/client/pkg/v3/types"
-	"go.etcd.io/etcd/client/v3"
+	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.etcd.io/etcd/pkg/v3/flags"
 	"go.etcd.io/etcd/pkg/v3/netutil"
 	"go.etcd.io/etcd/server/v3/config"
@@ -572,7 +572,7 @@ func (cfg *configYAML) configFromFile(path string) error {
 			fmt.Fprintf(os.Stderr, "unexpected error setting up listen-peer-urls: %v\n", err)
 			os.Exit(1)
 		}
-		cfg.LPUrls = []url.URL(u)
+		cfg.LPUrls = u
 	}
 
 	if cfg.LCUrlsJSON != "" {
@@ -581,7 +581,7 @@ func (cfg *configYAML) configFromFile(path string) error {
 			fmt.Fprintf(os.Stderr, "unexpected error setting up listen-client-urls: %v\n", err)
 			os.Exit(1)
 		}
-		cfg.LCUrls = []url.URL(u)
+		cfg.LCUrls = u
 	}
 
 	if cfg.APUrlsJSON != "" {
@@ -590,7 +590,7 @@ func (cfg *configYAML) configFromFile(path string) error {
 			fmt.Fprintf(os.Stderr, "unexpected error setting up initial-advertise-peer-urls: %v\n", err)
 			os.Exit(1)
 		}
-		cfg.APUrls = []url.URL(u)
+		cfg.APUrls = u
 	}
 
 	if cfg.ACUrlsJSON != "" {
@@ -599,7 +599,7 @@ func (cfg *configYAML) configFromFile(path string) error {
 			fmt.Fprintf(os.Stderr, "unexpected error setting up advertise-peer-urls: %v\n", err)
 			os.Exit(1)
 		}
-		cfg.ACUrls = []url.URL(u)
+		cfg.ACUrls = u
 	}
 
 	if cfg.ListenMetricsUrlsJSON != "" {
@@ -608,7 +608,7 @@ func (cfg *configYAML) configFromFile(path string) error {
 			fmt.Fprintf(os.Stderr, "unexpected error setting up listen-metrics-urls: %v\n", err)
 			os.Exit(1)
 		}
-		cfg.ListenMetricsUrls = []url.URL(u)
+		cfg.ListenMetricsUrls = u
 	}
 
 	if cfg.CORSJSON != "" {
@@ -652,13 +652,9 @@ func updateCipherSuites(tls *transport.TLSInfo, ss []string) error {
 		return fmt.Errorf("TLSInfo.CipherSuites is already specified (given %v)", ss)
 	}
 	if len(ss) > 0 {
-		cs := make([]uint16, len(ss))
-		for i, s := range ss {
-			var ok bool
-			cs[i], ok = tlsutil.GetCipherSuite(s)
-			if !ok {
-				return fmt.Errorf("unexpected TLS cipher suite %q", s)
-			}
+		cs, err := tlsutil.GetCipherSuites(ss)
+		if err != nil {
+			return err
 		}
 		tls.CipherSuites = cs
 	}
@@ -767,6 +763,18 @@ func (cfg *Config) Validate() error {
 
 	if cfg.ExperimentalCompactHashCheckTime <= 0 {
 		return fmt.Errorf("--experimental-compact-hash-check-time must be >0 (set to %v)", cfg.ExperimentalCompactHashCheckTime)
+	}
+
+	// If `--name` isn't configured, then multiple members may have the same "default" name.
+	// When adding a new member with the "default" name as well, etcd may regards its peerURL
+	// as one additional peerURL of the existing member which has the same "default" name,
+	// because each member can have multiple client or peer URLs.
+	// Please refer to https://github.com/etcd-io/etcd/issues/13757
+	if cfg.Name == DefaultName {
+		cfg.logger.Warn(
+			"it isn't recommended to use default name, please set a value for --name. "+
+				"Note that etcd might run into issue when multiple members have the same default name",
+			zap.String("name", cfg.Name))
 	}
 
 	return nil

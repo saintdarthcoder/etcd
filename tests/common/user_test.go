@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"go.etcd.io/etcd/tests/v3/framework"
 	"go.etcd.io/etcd/tests/v3/framework/config"
 	"go.etcd.io/etcd/tests/v3/framework/testutils"
 )
@@ -68,10 +69,10 @@ func TestUserAdd_Simple(t *testing.T) {
 				defer cancel()
 				clus := testRunner.NewCluster(ctx, t, tc.config)
 				defer clus.Close()
-				cc := clus.Client()
+				cc := framework.MustClient(clus.Client())
 
 				testutils.ExecuteUntil(ctx, t, func() {
-					resp, err := cc.UserAdd(nc.username, nc.password, config.UserAddOptions{NoPassword: nc.noPassword})
+					resp, err := cc.UserAdd(ctx, nc.username, nc.password, config.UserAddOptions{NoPassword: nc.noPassword})
 					if nc.expectedError != "" {
 						if err != nil {
 							assert.Contains(t, err.Error(), nc.expectedError)
@@ -102,18 +103,18 @@ func TestUserAdd_DuplicateUserNotAllowed(t *testing.T) {
 			defer cancel()
 			clus := testRunner.NewCluster(ctx, t, tc.config)
 			defer clus.Close()
-			cc := clus.Client()
+			cc := framework.MustClient(clus.Client())
 
 			testutils.ExecuteUntil(ctx, t, func() {
 				user := "barb"
 				password := "rhubarb"
 
-				_, err := cc.UserAdd(user, password, config.UserAddOptions{})
+				_, err := cc.UserAdd(ctx, user, password, config.UserAddOptions{})
 				if err != nil {
 					t.Fatalf("first user creation should succeed, err: %v", err)
 				}
 
-				_, err = cc.UserAdd(user, password, config.UserAddOptions{})
+				_, err = cc.UserAdd(ctx, user, password, config.UserAddOptions{})
 				if err == nil {
 					t.Fatalf("duplicate user creation should fail")
 				}
@@ -131,11 +132,11 @@ func TestUserList(t *testing.T) {
 			defer cancel()
 			clus := testRunner.NewCluster(ctx, t, tc.config)
 			defer clus.Close()
-			cc := clus.Client()
+			cc := framework.MustClient(clus.Client())
 
 			testutils.ExecuteUntil(ctx, t, func() {
 				// No Users Yet
-				resp, err := cc.UserList()
+				resp, err := cc.UserList(ctx)
 				if err != nil {
 					t.Fatalf("user listing should succeed, err: %v", err)
 				}
@@ -146,13 +147,13 @@ func TestUserList(t *testing.T) {
 				user := "barb"
 				password := "rhubarb"
 
-				_, err = cc.UserAdd(user, password, config.UserAddOptions{})
+				_, err = cc.UserAdd(ctx, user, password, config.UserAddOptions{})
 				if err != nil {
 					t.Fatalf("user creation should succeed, err: %v", err)
 				}
 
 				// Users!
-				resp, err = cc.UserList()
+				resp, err = cc.UserList(ctx)
 				if err != nil {
 					t.Fatalf("user listing should succeed, err: %v", err)
 				}
@@ -172,18 +173,18 @@ func TestUserDelete(t *testing.T) {
 			defer cancel()
 			clus := testRunner.NewCluster(ctx, t, tc.config)
 			defer clus.Close()
-			cc := clus.Client()
+			cc := framework.MustClient(clus.Client())
 
 			testutils.ExecuteUntil(ctx, t, func() {
 				user := "barb"
 				password := "rhubarb"
 
-				_, err := cc.UserAdd(user, password, config.UserAddOptions{})
+				_, err := cc.UserAdd(ctx, user, password, config.UserAddOptions{})
 				if err != nil {
 					t.Fatalf("user creation should succeed, err: %v", err)
 				}
 
-				resp, err := cc.UserList()
+				resp, err := cc.UserList(ctx)
 				if err != nil {
 					t.Fatalf("user listing should succeed, err: %v", err)
 				}
@@ -192,12 +193,12 @@ func TestUserDelete(t *testing.T) {
 				}
 
 				// Delete barb, sorry barb!
-				_, err = cc.UserDelete(user)
+				_, err = cc.UserDelete(ctx, user)
 				if err != nil {
 					t.Fatalf("user deletion should succeed at first, err: %v", err)
 				}
 
-				resp, err = cc.UserList()
+				resp, err = cc.UserList(ctx)
 				if err != nil {
 					t.Fatalf("user listing should succeed, err: %v", err)
 				}
@@ -206,7 +207,7 @@ func TestUserDelete(t *testing.T) {
 				}
 
 				// Try to delete barb again
-				_, err = cc.UserDelete(user)
+				_, err = cc.UserDelete(ctx, user)
 				if err == nil {
 					t.Fatalf("deleting a non-existent user should fail")
 				}
@@ -224,24 +225,24 @@ func TestUserChangePassword(t *testing.T) {
 			defer cancel()
 			clus := testRunner.NewCluster(ctx, t, tc.config)
 			defer clus.Close()
-			cc := clus.Client()
+			cc := framework.MustClient(clus.Client())
 
 			testutils.ExecuteUntil(ctx, t, func() {
 				user := "barb"
 				password := "rhubarb"
 				newPassword := "potato"
 
-				_, err := cc.UserAdd(user, password, config.UserAddOptions{})
+				_, err := cc.UserAdd(ctx, user, password, config.UserAddOptions{})
 				if err != nil {
 					t.Fatalf("user creation should succeed, err: %v", err)
 				}
 
-				err = cc.UserChangePass(user, newPassword)
+				err = cc.UserChangePass(ctx, user, newPassword)
 				if err != nil {
 					t.Fatalf("user password change should succeed, err: %v", err)
 				}
 
-				err = cc.UserChangePass("non-existent-user", newPassword)
+				err = cc.UserChangePass(ctx, "non-existent-user", newPassword)
 				if err == nil {
 					t.Fatalf("user password change for non-existent user should fail")
 				}

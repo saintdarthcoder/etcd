@@ -18,16 +18,17 @@
 package e2e
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/url"
-	"os"
 	"path"
 	"strconv"
 	"strings"
 
-	"go.etcd.io/etcd/pkg/v3/expect"
 	"go.uber.org/zap"
+
+	"go.etcd.io/etcd/pkg/v3/expect"
 )
 
 type proxyEtcdProcess struct {
@@ -62,18 +63,18 @@ func (p *proxyEtcdProcess) EndpointsMetrics() []string {
 	panic("not implemented; proxy doesn't provide health information")
 }
 
-func (p *proxyEtcdProcess) Start() error {
-	if err := p.etcdProc.Start(); err != nil {
+func (p *proxyEtcdProcess) Start(ctx context.Context) error {
+	if err := p.etcdProc.Start(ctx); err != nil {
 		return err
 	}
-	return p.proxyV3.Start()
+	return p.proxyV3.Start(ctx)
 }
 
-func (p *proxyEtcdProcess) Restart() error {
-	if err := p.etcdProc.Restart(); err != nil {
+func (p *proxyEtcdProcess) Restart(ctx context.Context) error {
+	if err := p.etcdProc.Restart(ctx); err != nil {
 		return err
 	}
-	return p.proxyV3.Restart()
+	return p.proxyV3.Restart(ctx)
 }
 
 func (p *proxyEtcdProcess) Stop() error {
@@ -98,17 +99,21 @@ func (p *proxyEtcdProcess) Close() error {
 	return err
 }
 
-func (p *proxyEtcdProcess) WithStopSignal(sig os.Signal) os.Signal {
-	p.proxyV3.WithStopSignal(sig)
-	return p.etcdProc.WithStopSignal(sig)
-}
-
 func (p *proxyEtcdProcess) Logs() LogsExpect {
 	return p.etcdProc.Logs()
 }
 
+func (p *proxyEtcdProcess) Kill() error {
+	return p.etcdProc.Kill()
+}
+
+func (p *proxyEtcdProcess) Wait() error {
+	return p.etcdProc.Wait()
+}
+
 type proxyProc struct {
 	lg       *zap.Logger
+	name     string
 	execPath string
 	args     []string
 	ep       string
@@ -124,7 +129,7 @@ func (pp *proxyProc) start() error {
 	if pp.proc != nil {
 		panic("already started")
 	}
-	proc, err := SpawnCmdWithLogger(pp.lg, append([]string{pp.execPath}, pp.args...), nil)
+	proc, err := SpawnCmdWithLogger(pp.lg, append([]string{pp.execPath}, pp.args...), nil, pp.name)
 	if err != nil {
 		return err
 	}
@@ -132,9 +137,9 @@ func (pp *proxyProc) start() error {
 	return nil
 }
 
-func (pp *proxyProc) waitReady(readyStr string) error {
+func (pp *proxyProc) waitReady(ctx context.Context, readyStr string) error {
 	defer close(pp.donec)
-	return WaitReadyExpectProc(pp.proc, []string{readyStr})
+	return WaitReadyExpectProc(ctx, pp.proc, []string{readyStr})
 }
 
 func (pp *proxyProc) Stop() error {
@@ -149,12 +154,6 @@ func (pp *proxyProc) Stop() error {
 	<-pp.donec
 	pp.donec = make(chan struct{})
 	return nil
-}
-
-func (pp *proxyProc) WithStopSignal(sig os.Signal) os.Signal {
-	ret := pp.proc.StopSignal
-	pp.proc.StopSignal = sig
-	return ret
 }
 
 func (pp *proxyProc) Close() error { return pp.Stop() }
@@ -188,6 +187,7 @@ func newProxyV2Proc(cfg *EtcdServerProcessConfig) *proxyV2Proc {
 	}
 	return &proxyV2Proc{
 		proxyProc: proxyProc{
+			name:     cfg.Name,
 			lg:       cfg.lg,
 			execPath: cfg.ExecPath,
 			args:     append(args, cfg.TlsArgs...),
@@ -251,6 +251,7 @@ func newProxyV3Proc(cfg *EtcdServerProcessConfig) *proxyV3Proc {
 
 	return &proxyV3Proc{
 		proxyProc{
+			name:     cfg.Name,
 			lg:       cfg.lg,
 			execPath: cfg.ExecPath,
 			args:     append(args, tlsArgs...),
@@ -261,16 +262,16 @@ func newProxyV3Proc(cfg *EtcdServerProcessConfig) *proxyV3Proc {
 	}
 }
 
-func (v3p *proxyV3Proc) Restart() error {
+func (v3p *proxyV3Proc) Restart(ctx context.Context) error {
 	if err := v3p.Stop(); err != nil {
 		return err
 	}
-	return v3p.Start()
+	return v3p.Start(ctx)
 }
 
-func (v3p *proxyV3Proc) Start() error {
+func (v3p *proxyV3Proc) Start(ctx context.Context) error {
 	if err := v3p.start(); err != nil {
 		return err
 	}
-	return v3p.waitReady("started gRPC proxy")
+	return v3p.waitReady(ctx, "started gRPC proxy")
 }

@@ -27,10 +27,14 @@ import (
 
 	"go.etcd.io/etcd/api/v3/mvccpb"
 	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
-	"go.etcd.io/etcd/client/v3"
+	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.etcd.io/etcd/client/v3/mirror"
 
 	"github.com/spf13/cobra"
+)
+
+const (
+	defaultMaxTxnOps = uint(128)
 )
 
 var (
@@ -44,6 +48,7 @@ var (
 	mmpassword     string
 	mmnodestprefix bool
 	mmrev          int64
+	mmmaxTxnOps    uint
 )
 
 // NewMakeMirrorCommand returns the cobra command for "makeMirror".
@@ -56,6 +61,7 @@ func NewMakeMirrorCommand() *cobra.Command {
 
 	c.Flags().StringVar(&mmprefix, "prefix", "", "Key-value prefix to mirror")
 	c.Flags().Int64Var(&mmrev, "rev", 0, "Specify the kv revision to start to mirror")
+	c.Flags().UintVar(&mmmaxTxnOps, "max-txn-ops", defaultMaxTxnOps, "Maximum number of operations permitted in a transaction during syncing updates.")
 	c.Flags().StringVar(&mmdestprefix, "dest-prefix", "", "destination prefix to mirror a prefix to a different prefix in the destination cluster")
 	c.Flags().BoolVar(&mmnodestprefix, "no-dest-prefix", false, "mirror key-values to the root of the destination cluster")
 	c.Flags().StringVar(&mmcert, "dest-cert", "", "Identify secure client using this TLS certificate file for the destination cluster")
@@ -185,7 +191,7 @@ func makeMirror(ctx context.Context, c *clientv3.Client, dc *clientv3.Client) er
 		}
 
 		var lastRev int64
-		ops := []clientv3.Op{}
+		var ops []clientv3.Op
 
 		for _, ev := range wr.Events {
 			nextRev := ev.Kv.ModRevision
@@ -197,6 +203,15 @@ func makeMirror(ctx context.Context, c *clientv3.Client, dc *clientv3.Client) er
 				ops = []clientv3.Op{}
 			}
 			lastRev = nextRev
+
+			if len(ops) == int(mmmaxTxnOps) {
+				_, err := dc.Txn(ctx).Then(ops...).Commit()
+				if err != nil {
+					return err
+				}
+				ops = []clientv3.Op{}
+			}
+
 			switch ev.Type {
 			case mvccpb.PUT:
 				ops = append(ops, clientv3.OpPut(modifyPrefix(string(ev.Kv.Key)), string(ev.Kv.Value)))

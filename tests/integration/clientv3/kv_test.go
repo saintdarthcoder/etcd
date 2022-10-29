@@ -28,7 +28,7 @@ import (
 	"go.etcd.io/etcd/api/v3/mvccpb"
 	"go.etcd.io/etcd/api/v3/v3rpc/rpctypes"
 	"go.etcd.io/etcd/api/v3/version"
-	"go.etcd.io/etcd/client/v3"
+	clientv3 "go.etcd.io/etcd/client/v3"
 	integration2 "go.etcd.io/etcd/tests/v3/framework/integration"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -353,17 +353,15 @@ func TestKVDeleteRange(t *testing.T) {
 	ctx := context.TODO()
 
 	tests := []struct {
-		key  string
-		opts []clientv3.OpOption
-
+		key   string
+		opts  []clientv3.OpOption
 		wkeys []string
 	}{
 		// *
 		{
-			key:  "\x00",
-			opts: []clientv3.OpOption{clientv3.WithFromKey()},
-
-			wkeys: []string{},
+			key:   "\x00",
+			opts:  []clientv3.OpOption{clientv3.WithFromKey()},
+			wkeys: nil,
 		},
 	}
 
@@ -384,7 +382,7 @@ func TestKVDeleteRange(t *testing.T) {
 		if err != nil {
 			t.Fatalf("#%d: couldn't get keys (%v)", i, err)
 		}
-		keys := []string{}
+		var keys []string
 		for _, kv := range resp.Kvs {
 			keys = append(keys, string(kv.Key))
 		}
@@ -776,7 +774,7 @@ func TestKVLargeRequests(t *testing.T) {
 func TestKVForLearner(t *testing.T) {
 	integration2.BeforeTest(t)
 
-	clus := integration2.NewCluster(t, &integration2.ClusterConfig{Size: 3})
+	clus := integration2.NewCluster(t, &integration2.ClusterConfig{Size: 3, DisableStrictReconfigCheck: true})
 	defer clus.Terminate(t)
 
 	// we have to add and launch learner member after initial cluster was created, because
@@ -855,7 +853,7 @@ func TestKVForLearner(t *testing.T) {
 func TestBalancerSupportLearner(t *testing.T) {
 	integration2.BeforeTest(t)
 
-	clus := integration2.NewCluster(t, &integration2.ClusterConfig{Size: 3})
+	clus := integration2.NewCluster(t, &integration2.ClusterConfig{Size: 3, DisableStrictReconfigCheck: true})
 	defer clus.Terminate(t)
 
 	// we have to add and launch learner member after initial cluster was created, because

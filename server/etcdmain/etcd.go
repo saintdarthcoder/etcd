@@ -19,6 +19,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"time"
 
 	"go.etcd.io/etcd/client/pkg/v3/fileutil"
 	"go.etcd.io/etcd/client/pkg/v3/logutil"
@@ -119,10 +120,12 @@ func startEtcdOrProxyV2(args []string) {
 			)
 		}
 	} else {
+		lg.Info(
+			"Initialize and start etcd server",
+			zap.String("data-dir", cfg.ec.Dir),
+			zap.String("dir-type", string(which)),
+		)
 		stopped, errc, err = startEtcd(&cfg.ec)
-		if err != nil {
-			lg.Warn("failed to start etcd", zap.Error(err))
-		}
 	}
 
 	if err != nil {
@@ -207,6 +210,8 @@ func startEtcd(cfg *embed.Config) (<-chan struct{}, <-chan error, error) {
 	select {
 	case <-e.Server.ReadyNotify(): // wait for e.Server to join the cluster
 	case <-e.Server.StopNotify(): // publish aborted from 'ErrStopped'
+	case <-time.After(cfg.ExperimentalWaitClusterReadyTimeout):
+		e.GetLogger().Warn("startEtcd: timed out waiting for the ready notification")
 	}
 	return e.Server.StopNotify(), e.Err(), nil
 }
@@ -255,7 +260,8 @@ func checkSupportArch() {
 	if err != nil {
 		panic(err)
 	}
-	// to add a new platform, check https://github.com/etcd-io/website/blob/main/content/en/docs/next/op-guide/supported-platform.md
+	// To add a new platform, check https://github.com/etcd-io/website/blob/main/content/en/docs/${VERSION}/op-guide/supported-platform.md.
+	// The ${VERSION} is the etcd version, e.g. v3.5, v3.6 etc.
 	if runtime.GOARCH == "amd64" ||
 		runtime.GOARCH == "arm64" ||
 		runtime.GOARCH == "ppc64le" ||

@@ -110,7 +110,7 @@ func testWatchMultiWatcher(t *testing.T, wctx *watchctx) {
 			t.Errorf("expected watcher channel, got nil")
 		}
 		readyc <- struct{}{}
-		evs := []*clientv3.Event{}
+		var evs []*clientv3.Event
 		for i := 0; i < numKeyUpdates*2; i++ {
 			resp, ok := <-prefixc
 			if !ok {
@@ -120,14 +120,14 @@ func testWatchMultiWatcher(t *testing.T, wctx *watchctx) {
 		}
 
 		// check response
-		expected := []string{}
+		var expected []string
 		bkeys := []string{"bar", "baz"}
 		for _, k := range bkeys {
 			for i := 0; i < numKeyUpdates; i++ {
 				expected = append(expected, fmt.Sprintf("%s-%d", k, i))
 			}
 		}
-		got := []string{}
+		var got []string
 		for _, ev := range evs {
 			got = append(got, string(ev.Kv.Value))
 		}
@@ -339,6 +339,9 @@ func putAndWatch(t *testing.T, wctx *watchctx, key, val string) {
 	case v, ok := <-wctx.ch:
 		if !ok {
 			t.Fatalf("unexpected watch close")
+		}
+		if err := v.Err(); err != nil {
+			t.Fatalf("unexpected watch response error: %v", err)
 		}
 		if string(v.Events[0].Kv.Value) != val {
 			t.Fatalf("bad value got %v, wanted %v", v.Events[0].Kv.Value, val)
@@ -1035,12 +1038,12 @@ func TestWatchCancelOnServer(t *testing.T) {
 // TestWatchOverlapContextCancel stresses the watcher stream teardown path by
 // creating/canceling watchers to ensure that new watchers are not taken down
 // by a torn down watch stream. The sort of race that's being detected:
-//     1. create w1 using a cancelable ctx with %v as "ctx"
-//     2. cancel ctx
-//     3. watcher client begins tearing down watcher grpc stream since no more watchers
-//     3. start creating watcher w2 using a new "ctx" (not canceled), attaches to old grpc stream
-//     4. watcher client finishes tearing down stream on "ctx"
-//     5. w2 comes back canceled
+//  1. create w1 using a cancelable ctx with %v as "ctx"
+//  2. cancel ctx
+//  3. watcher client begins tearing down watcher grpc stream since no more watchers
+//  3. start creating watcher w2 using a new "ctx" (not canceled), attaches to old grpc stream
+//  4. watcher client finishes tearing down stream on "ctx"
+//  5. w2 comes back canceled
 func TestWatchOverlapContextCancel(t *testing.T) {
 	f := func(clus *integration2.Cluster) {}
 	testWatchOverlapContextCancel(t, f)

@@ -14,17 +14,65 @@
 
 package config
 
+import "time"
+
 type TLSConfig string
 
 const (
 	NoTLS     TLSConfig = ""
 	AutoTLS   TLSConfig = "auto-tls"
 	ManualTLS TLSConfig = "manual-tls"
+
+	TickDuration = 10 * time.Millisecond
 )
 
 type ClusterConfig struct {
-	ClusterSize       int
-	PeerTLS           TLSConfig
-	ClientTLS         TLSConfig
-	QuotaBackendBytes int64
+	ClusterSize         int
+	PeerTLS             TLSConfig
+	ClientTLS           TLSConfig
+	QuotaBackendBytes   int64
+	StrictReconfigCheck bool
+	AuthToken           string
+	SnapshotCount       int
+}
+
+func DefaultClusterConfig() ClusterConfig {
+	return ClusterConfig{
+		ClusterSize:         3,
+		StrictReconfigCheck: true,
+	}
+}
+
+func NewClusterConfig(opts ...ClusterOption) ClusterConfig {
+	c := DefaultClusterConfig()
+	for _, opt := range opts {
+		opt(&c)
+	}
+	return c
+}
+
+type ClusterOption func(*ClusterConfig)
+
+func WithClusterSize(size int) ClusterOption {
+	return func(c *ClusterConfig) { c.ClusterSize = size }
+}
+
+func WithPeerTLS(tls TLSConfig) ClusterOption {
+	return func(c *ClusterConfig) { c.PeerTLS = tls }
+}
+
+func WithClientTLS(tls TLSConfig) ClusterOption {
+	return func(c *ClusterConfig) { c.ClientTLS = tls }
+}
+
+func WithQuotaBackendBytes(bytes int64) ClusterOption {
+	return func(c *ClusterConfig) { c.QuotaBackendBytes = bytes }
+}
+
+func WithSnapshotCount(count int) ClusterOption {
+	return func(c *ClusterConfig) { c.SnapshotCount = count }
+}
+
+func WithDisableStrictReconfigCheck() ClusterOption {
+	return func(c *ClusterConfig) { c.StrictReconfigCheck = false }
 }

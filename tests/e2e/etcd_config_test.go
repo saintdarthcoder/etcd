@@ -15,6 +15,7 @@
 package e2e
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -29,11 +30,11 @@ const exampleConfigFile = "../../etcd.conf.yml.sample"
 func TestEtcdExampleConfig(t *testing.T) {
 	e2e.SkipInShortMode(t)
 
-	proc, err := e2e.SpawnCmd([]string{e2e.BinDir + "/etcd", "--config-file", exampleConfigFile}, nil)
+	proc, err := e2e.SpawnCmd([]string{e2e.BinPath.Etcd, "--config-file", exampleConfigFile}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = e2e.WaitReadyExpectProc(proc, e2e.EtcdServerReadyLines); err != nil {
+	if err = e2e.WaitReadyExpectProc(context.TODO(), proc, e2e.EtcdServerReadyLines); err != nil {
 		t.Fatal(err)
 	}
 	if err = proc.Stop(); err != nil {
@@ -61,7 +62,7 @@ func TestEtcdMultiPeer(t *testing.T) {
 	}()
 	for i := range procs {
 		args := []string{
-			e2e.BinDir + "/etcd",
+			e2e.BinPath.Etcd,
 			"--name", fmt.Sprintf("e%d", i),
 			"--listen-client-urls", "http://0.0.0.0:0",
 			"--data-dir", tmpdirs[i],
@@ -78,7 +79,7 @@ func TestEtcdMultiPeer(t *testing.T) {
 	}
 
 	for _, p := range procs {
-		if err := e2e.WaitReadyExpectProc(p, e2e.EtcdServerReadyLines); err != nil {
+		if err := e2e.WaitReadyExpectProc(context.TODO(), p, e2e.EtcdServerReadyLines); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -91,7 +92,7 @@ func TestEtcdUnixPeers(t *testing.T) {
 	d := t.TempDir()
 	proc, err := e2e.SpawnCmd(
 		[]string{
-			e2e.BinDir + "/etcd",
+			e2e.BinPath.Etcd,
 			"--data-dir", d,
 			"--name", "e1",
 			"--listen-peer-urls", "unix://etcd.unix:1",
@@ -103,7 +104,7 @@ func TestEtcdUnixPeers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = e2e.WaitReadyExpectProc(proc, e2e.EtcdServerReadyLines); err != nil {
+	if err = e2e.WaitReadyExpectProc(context.TODO(), proc, e2e.EtcdServerReadyLines); err != nil {
 		t.Fatal(err)
 	}
 	if err = proc.Stop(); err != nil {
@@ -134,7 +135,7 @@ func TestEtcdPeerCNAuth(t *testing.T) {
 	// node 0 and 1 have a cert with the correct CN, node 2 doesn't
 	for i := range procs {
 		commonArgs := []string{
-			e2e.BinDir + "/etcd",
+			e2e.BinPath.Etcd,
 			"--name", fmt.Sprintf("e%d", i),
 			"--listen-client-urls", "http://0.0.0.0:0",
 			"--data-dir", tmpdirs[i],
@@ -183,7 +184,7 @@ func TestEtcdPeerCNAuth(t *testing.T) {
 		} else {
 			expect = []string{"remote error: tls: bad certificate"}
 		}
-		if err := e2e.WaitReadyExpectProc(p, expect); err != nil {
+		if err := e2e.WaitReadyExpectProc(context.TODO(), p, expect); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -213,7 +214,7 @@ func TestEtcdPeerNameAuth(t *testing.T) {
 	// node 0 and 1 have a cert with the correct certificate name, node 2 doesn't
 	for i := range procs {
 		commonArgs := []string{
-			e2e.BinDir + "/etcd",
+			e2e.BinPath.Etcd,
 			"--name", fmt.Sprintf("e%d", i),
 			"--listen-client-urls", "http://0.0.0.0:0",
 			"--data-dir", tmpdirs[i],
@@ -258,7 +259,7 @@ func TestEtcdPeerNameAuth(t *testing.T) {
 		} else {
 			expect = []string{"client certificate authentication failed"}
 		}
-		if err := e2e.WaitReadyExpectProc(p, expect); err != nil {
+		if err := e2e.WaitReadyExpectProc(context.TODO(), p, expect); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -268,7 +269,7 @@ func TestGrpcproxyAndCommonName(t *testing.T) {
 	e2e.SkipInShortMode(t)
 
 	argsWithNonEmptyCN := []string{
-		e2e.BinDir + "/etcd",
+		e2e.BinPath.Etcd,
 		"grpc-proxy",
 		"start",
 		"--cert", e2e.CertPath2,
@@ -277,7 +278,7 @@ func TestGrpcproxyAndCommonName(t *testing.T) {
 	}
 
 	argsWithEmptyCN := []string{
-		e2e.BinDir + "/etcd",
+		e2e.BinPath.Etcd,
 		"grpc-proxy",
 		"start",
 		"--cert", e2e.CertPath3,
@@ -302,14 +303,54 @@ func TestGrpcproxyAndCommonName(t *testing.T) {
 	}
 }
 
+func TestGrpcproxyAndListenCipherSuite(t *testing.T) {
+	e2e.SkipInShortMode(t)
+
+	cases := []struct {
+		name string
+		args []string
+	}{
+		{
+			name: "ArgsWithCipherSuites",
+			args: []string{
+				e2e.BinPath.Etcd,
+				"grpc-proxy",
+				"start",
+				"--listen-cipher-suites", "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256",
+			},
+		},
+		{
+			name: "ArgsWithoutCipherSuites",
+			args: []string{
+				e2e.BinPath.Etcd,
+				"grpc-proxy",
+				"start",
+				"--listen-cipher-suites", "",
+			},
+		},
+	}
+
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			pw, err := e2e.SpawnCmd(test.args, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err = pw.Stop(); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
 func TestBootstrapDefragFlag(t *testing.T) {
 	e2e.SkipInShortMode(t)
 
-	proc, err := e2e.SpawnCmd([]string{e2e.BinDir + "/etcd", "--experimental-bootstrap-defrag-threshold-megabytes", "1000"}, nil)
+	proc, err := e2e.SpawnCmd([]string{e2e.BinPath.Etcd, "--experimental-bootstrap-defrag-threshold-megabytes", "1000"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = e2e.WaitReadyExpectProc(proc, []string{"Skipping defragmentation"}); err != nil {
+	if err = e2e.WaitReadyExpectProc(context.TODO(), proc, []string{"Skipping defragmentation"}); err != nil {
 		t.Fatal(err)
 	}
 	if err = proc.Stop(); err != nil {
